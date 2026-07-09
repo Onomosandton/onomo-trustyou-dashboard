@@ -106,19 +106,19 @@ if uploaded_file is not None:
         with col1:
             st.metric(label="Total Reviews Analyzed", value=f"{len(df):,}")
         with col2:
-            st.metric(label="15-Min SLA Compliance", value="94.2%", delta="↑ 2.1%")
+            # Streamlit automatically adds the up/down arrows based on the + or - sign
+            st.metric(label="15-Min SLA Compliance", value="94.2%", delta="2.1%")
         with col3:
             st.metric(label="Financial Recovery Cost", value="R420.00", delta="-R150.00", delta_color="inverse")
         with col4:
-            st.metric(label="O-Smile Team Cheers", value="18", delta="↑ 5")
+            st.metric(label="O-Smile Team Cheers", value="18", delta="5")
             
         st.divider()
         
         # 6. Interactive Visualizations (African Fusion Colors)
         st.markdown("### 🎯 Departmental Heat Map")
         
-        # Create some dummy data for the chart so the GM sees something beautiful immediately
-        # (Once we know your exact CSV column names, we will link this to the real data)
+        # Dummy data placeholder for the visual
         chart_data = pd.DataFrame({
             "Department": ["Front Desk", "Housekeeping", "Food & Beverage", "Maintenance", "Spa"],
             "Friction Points": [12, 18, 9, 24, 3]
@@ -155,8 +155,3 @@ if uploaded_file is not None:
 else:
     # Warm empty state
     st.info("👆 Waiting for data... Drop a CSV file above to ignite the engine.")
-```eof
-
-When your Streamlit tab refreshes, you will see a much warmer ivory background, styled metric cards that pop out with orange borders, custom typography, and a fully interactive, color-coordinated chart that appears when you drop a CSV into the uploader! 
-
-Let me know what you think of the new vibe!
