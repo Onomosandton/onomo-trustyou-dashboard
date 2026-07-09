@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Premium Corporate CSS (No color inversion needed!)
+# 2. Premium Corporate CSS
 st.markdown("""
 <style>
     /* Premium Light Canvas */
@@ -26,6 +26,12 @@ st.markdown("""
     /* Transparent Header */
     [data-testid="stHeader"] {
         background-color: transparent !important;
+    }
+    
+    /* MAGIC FIX: Melt the white backgrounds off the logos */
+    div[data-testid="column"]:nth-of-type(1) img, 
+    div[data-testid="column"]:nth-of-type(3) img {
+        mix-blend-mode: multiply;
     }
     
     /* Metric Cards */
@@ -105,7 +111,8 @@ if uploaded_file is None:
     
     with welcome_right:
         if os.path.exists("vibe1.jpg"):
-            st.image("vibe1.jpg", use_column_width=True, caption="Smile Africa: Live Operational Environment")
+            # Removed the caption
+            st.image("vibe1.jpg", use_column_width=True)
         else:
             st.info("Upload 'vibe1.jpg' to your GitHub to display the lifestyle image here.")
 
