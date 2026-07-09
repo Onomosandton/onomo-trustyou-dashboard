@@ -4,39 +4,36 @@ import plotly.express as px
 import base64
 import os
 
-# 1. Page Configuration
+# 1. Page Configuration (Must be first)
 st.set_page_config(
     page_title="Synergy Command Center",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. Advanced Image Renderer (Now with Apple-style rounded corners & shadows)
-def render_image(filepath, width, mix_blend=False, align="left", radius="0px", shadow=False):
+# 2. Base64 Encoder Helper
+def get_base64_image(filepath):
     if not os.path.exists(filepath):
-        return f"<p style='color:red; font-size:12px;'>Missing: {filepath}</p>"
-    
+        return ""
     with open(filepath, "rb") as f:
-        data = base64.b64encode(f.read()).decode("utf-8")
-    
-    mime = "image/png" if filepath.lower().endswith(".png") else "image/jpeg"
-    blend_style = "mix-blend-mode: multiply;" if mix_blend else ""
-    radius_style = f"border-radius: {radius};"
-    shadow_style = "box-shadow: 0 20px 40px rgba(0,0,0,0.15);" if shadow else ""
-    
-    if align == "right":
-        align_style = "margin-left: auto; display: block; padding-right: 40px;" # Pushed left slightly to avoid Streamlit menu
-    elif align == "center":
-        align_style = "margin: 0 auto; display: block;"
-    else:
-        align_style = "display: block;"
-        
-    return f'<img src="data:{mime};base64,{data}" style="width: {width}; {blend_style} {radius_style} {shadow_style} {align_style} object-fit: cover;">'
+        return base64.b64encode(f.read()).decode("utf-8")
 
-# 3. Premium Corporate CSS
+aleph_b64 = get_base64_image("aleph_logo.png")
+onomo_b64 = get_base64_image("onomo_logo.jpg")
+vibe_b64 = get_base64_image("vibe1.jpg")
+
+# 3. Aggressive CSS Injection (Stripping Streamlit's default identity)
 st.markdown("""
 <style>
-    /* Premium Light Canvas */
+    /* 1. HIDE ALL STREAMLIT CHROME & WATERMARKS */
+    [data-testid="stToolbar"] {display: none !important;}
+    footer {display: none !important;}
+    header {display: none !important;}
+    
+    /* Hide the ugly anchor links next to headers */
+    .st-emotion-cache-1629p8f a, a.anchor-link {display: none !important;}
+    
+    /* 2. PREMIUM CANVAS */
     .stApp {
         background-color: #F8F9FA;
     }
@@ -46,27 +43,33 @@ st.markdown("""
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
     
-    /* Transparent Header */
-    [data-testid="stHeader"] {
-        background-color: transparent !important;
+    /* 3. CUSTOM UPLOADER STYLING */
+    /* Target the specific dropzone container deeply */
+    [data-testid="stFileUploadDropzone"] {
+        background-color: #FFFFFF !important;
+        border: 2px dashed #7EC8BD !important; 
+        border-radius: 12px !important;
+        padding: 40px !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.03) !important;
+        transition: all 0.3s ease !important;
+    }
+    [data-testid="stFileUploadDropzone"]:hover {
+        background-color: #F0F9F8 !important;
+        border-color: #4A5D54 !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.06) !important;
     }
     
-    /* Sleek Divider */
-    hr {
-        border-top: 1px solid rgba(0,0,0,0.05) !important;
-        margin: 1.5em 0 3em 0;
-    }
-    
-    /* Metric Cards */
+    /* 4. DASHBOARD CARDS */
     div[data-testid="metric-container"] {
         background: #FFFFFF !important;
         padding: 24px;
         border-radius: 12px;
         border-top: 4px solid #7EC8BD; 
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
-        border: 1px solid rgba(0,0,0,0.02);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+        border-left: 1px solid rgba(0,0,0,0.02);
+        border-right: 1px solid rgba(0,0,0,0.02);
+        border-bottom: 1px solid rgba(0,0,0,0.02);
     }
-    
     div[data-testid="metric-container"] label {
         color: #888888 !important;
         font-weight: 700 !important;
@@ -74,94 +77,79 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 1px;
     }
-    
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
         color: #1A1A1A !important; 
         font-weight: 800 !important;
-        font-size: 2.5rem !important;
+        font-size: 2.8rem !important;
     }
 
-    /* Uploader & Data Containers */
+    /* Glass Containers */
     .glass-container {
         background: #FFFFFF !important;
         border-radius: 16px;
         padding: 30px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.03);
         border: 1px solid rgba(0,0,0,0.02) !important;
-    }
-    
-    /* The Call to Action Uploader */
-    section[data-testid="stFileUploadDropzone"] {
-        background: #FFFFFF !important;
-        border: 2px dashed #7EC8BD !important; 
-        border-radius: 12px;
-        padding: 40px 20px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-        transition: all 0.3s ease;
-    }
-    section[data-testid="stFileUploadDropzone"]:hover {
-        background: #F0F9F8 !important;
-        border: 2px dashed #4A5D54 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Persistent Header
-col_logo1, col_title, col_logo2 = st.columns([1, 2, 1], gap="small")
-
-with col_logo1:
-    st.markdown(render_image("aleph_logo.png", width="150px", mix_blend=True, align="left"), unsafe_allow_html=True)
-
-with col_title:
-    st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 900; margin-bottom: 0; letter-spacing: -0.5px;'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #7EC8BD; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px;'>Sandton Property Operations</p>", unsafe_allow_html=True)
-
-with col_logo2:
-    st.markdown(render_image("onomo_logo.jpg", width="160px", mix_blend=True, align="right"), unsafe_allow_html=True)
-
-st.divider()
+# 4. Custom Flexbox Header (Bypassing Streamlit Columns for pixel-perfect alignment)
+header_html = f"""
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0 30px 0; border-bottom: 1px solid rgba(0,0,0,0.05); margin-bottom: 40px;">
+    <div style="flex: 1;">
+        <img src="data:image/png;base64,{aleph_b64}" width="160" style="mix-blend-mode: multiply;">
+    </div>
+    <div style="flex: 2; text-align: center;">
+        <h2 style="margin: 0; color: #1A1A1A; font-weight: 900; letter-spacing: -0.5px; font-size: 2rem;">SYNERGY COMMAND CENTER</h2>
+        <p style="margin: 5px 0 0 0; color: #7EC8BD; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px;">Sandton Property Operations</p>
+    </div>
+    <div style="flex: 1; display: flex; justify-content: flex-end;">
+        <img src="data:image/jpeg;base64,{onomo_b64}" width="170" style="mix-blend-mode: multiply;">
+    </div>
+</div>
+"""
+st.markdown(header_html, unsafe_allow_html=True)
 
 # 5. Application State Router
-# We check if a file has been uploaded. If not, show the beautiful welcome screen.
 if 'uploaded_file' not in st.session_state:
     st.session_state.uploaded_file = None
 
-# We place the uploader in a variable but we don't display it globally anymore.
-# We will display it specifically where it looks best based on the app state.
-
 if st.session_state.uploaded_file is None:
-    # --- STATE 1: THE WELCOME SCREEN ---
+    # --- STATE 1: TRUE WELCOME SCREEN ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        st.markdown("<div style='padding-top: 40px;'></div>", unsafe_allow_html=True)
-        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1px;'>Welcome to<br>Sandton Operations.</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #666666; font-size: 1.25rem; line-height: 1.7; margin-top: 20px; margin-bottom: 40px;'>Ignite the engine by uploading the latest weekly CSV report below. The system will instantly correlate guest sentiment with our on-the-ground floor trackers.</p>", unsafe_allow_html=True)
+        st.markdown("<div style='padding-top: 30px;'></div>", unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 4rem; line-height: 1.05; letter-spacing: -1.5px; margin-bottom: 20px;'>Welcome to<br>Sandton Operations.</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666666; font-size: 1.25rem; line-height: 1.7; margin-bottom: 40px; max-width: 90%;'>Ignite the engine by uploading the latest weekly CSV report below. The system will instantly correlate guest sentiment with our on-the-ground floor trackers.</p>", unsafe_allow_html=True)
         
-        # The Uploader acts as the primary action button right below the text
-        uploaded_file = st.file_uploader("📂 Drop Weekly TrustYou CSV Here", type=["csv"])
+        uploaded_file = st.file_uploader("Drop Weekly TrustYou CSV Here", type=["csv"], label_visibility="collapsed")
         if uploaded_file:
             st.session_state.uploaded_file = uploaded_file
             st.rerun()
             
     with welcome_right:
-        # Render the lifestyle image with premium rounded corners and a soft drop shadow
-        st.markdown(render_image("vibe1.jpg", width="100%", mix_blend=False, align="center", radius="20px", shadow=True), unsafe_allow_html=True)
+        if vibe_b64:
+            st.markdown(f"""
+            <div style="box-shadow: 0 20px 50px rgba(0,0,0,0.15); border-radius: 24px; overflow: hidden; margin-top: 10px;">
+                <img src="data:image/jpeg;base64,{vibe_b64}" style="width: 100%; display: block; object-fit: cover;">
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.error("vibe1.jpg missing from repository.")
 
 else:
     # --- STATE 2: THE ACTIVE DASHBOARD ---
-    # Optional: Allow user to clear the data and go back to welcome screen
     if st.button("← Reset Dashboard"):
         st.session_state.uploaded_file = None
         st.rerun()
         
     try:
-        # Load the uploaded data
         df = pd.read_csv(st.session_state.uploaded_file)
         
-        st.markdown("<div style='padding-top: 20px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
         
-        # Top Metrics
         col1, col2, col3, col4 = st.columns(4, gap="medium")
         
         with col1:
@@ -173,7 +161,6 @@ else:
         with col4:
             st.metric(label="Staff Highlights", value="18", delta="5")
             
-        # Charts Area
         st.markdown("<div class='glass-container' style='margin-top: 40px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 25px;'>Departmental Friction Heatmap</h4>", unsafe_allow_html=True)
         
@@ -183,26 +170,19 @@ else:
         })
         
         fig = px.bar(
-            chart_data, 
-            x="Department", 
-            y="Incidents",
-            color="Department",
+            chart_data, x="Department", y="Incidents", color="Department",
             color_discrete_sequence=["#1A1A1A", "#7EC8BD", "#A9B5B0", "#333333", "#666666"],
         )
         
         fig.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#1A1A1A", size=14),
-            showlegend=False,
-            margin=dict(t=0, b=0, l=0, r=0)
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#1A1A1A", size=14), showlegend=False, margin=dict(t=0, b=0, l=0, r=0)
         )
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
         
         st.plotly_chart(fig, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # Data Audit Area
         st.markdown("<div class='glass-container' style='margin-top: 40px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 25px;'>Correlated Data Audit</h4>", unsafe_allow_html=True)
         st.dataframe(df.head(10), use_container_width=True)
