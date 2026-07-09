@@ -2,19 +2,23 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Page Configuration (No Emojis)
+# 1. Page Configuration
 st.set_page_config(
     page_title="Aleph Synergy Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. Ultra-Clean Corporate CSS
+# 2. Immersive CSS with Real Background & Glassmorphism
 st.markdown("""
 <style>
-    /* Clean White Background */
+    /* Inject Real Hospitality Background Image with a subtle brightening overlay for readability */
     .stApp {
-        background-color: #FFFFFF;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.8)), 
+                          url('https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
     }
     
     /* Sharp Corporate Typography */
@@ -22,67 +26,84 @@ st.markdown("""
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
     
-    /* Metric Cards - Minimalist with Aleph Portfolio Green Accent */
+    /* Magic Fix: Invert the Aleph logo colors (White to Black) */
+    div[data-testid="column"]:nth-of-type(1) img {
+        filter: invert(1);
+    }
+    
+    /* Metric Cards - Frosted Glass Effect with Aleph Deep Green */
     div[data-testid="metric-container"] {
-        background-color: #FFFFFF;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px); /* The frosted glass blur */
+        -webkit-backdrop-filter: blur(12px);
         padding: 20px;
-        border-top: 4px solid #778B82; /* Muted teal/green from Aleph site */
-        border-bottom: 1px solid #EAEAEA;
-        border-left: 1px solid #EAEAEA;
-        border-right: 1px solid #EAEAEA;
-        box-shadow: none;
+        border-radius: 10px;
+        border-top: 5px solid #4A5D54; /* Aleph Corporate Deep Green */
+        border-left: 1px solid rgba(255,255,255,0.5);
+        border-right: 1px solid rgba(255,255,255,0.5);
+        border-bottom: 1px solid rgba(255,255,255,0.5);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
     }
     
     /* Metric Labels */
     div[data-testid="metric-container"] label {
-        color: #666666 !important;
-        font-weight: 600 !important;
-        font-size: 0.85rem !important;
+        color: #4A5D54 !important;
+        font-weight: 700 !important;
+        font-size: 0.90rem !important;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
     
-    /* Metric Values - Thin and Sharp */
+    /* Metric Values */
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
         color: #1A1A1A !important; 
         font-weight: 300 !important;
-        font-size: 2.5rem !important;
+        font-size: 2.8rem !important;
     }
 
-    /* Uploader Styling - Clean and Professional */
+    /* Uploader Styling - Glassmorphism */
     section[data-testid="stFileUploadDropzone"] {
-        background-color: #F8F9FA;
-        border: 1px dashed #CCCCCC;
-        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(10px);
+        border: 2px dashed #4A5D54;
+        border-radius: 10px;
         padding: 30px;
     }
     
-    /* Subtle Divider */
+    /* Glass Data Containers */
+    .glass-container {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px);
+        padding: 25px;
+        border-radius: 10px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255,255,255,0.5);
+        margin-top: 20px;
+    }
+    
     hr {
-        border-top: 1px solid #EAEAEA !important;
+        border-top: 1px solid rgba(74, 93, 84, 0.2) !important;
         margin: 2em 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Header Section with Actual Logos
+# 3. Header Section
 col_left, col_center, col_right = st.columns([1, 2, 1])
 
 with col_left:
-    # Pulling the Aleph logo directly using the exact GitHub UUID filename
     st.image("3ec1afe8-cd02-43ff-95aa-80b35415a9d1.png", width=160)
 
 with col_center:
-    st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 700; margin-bottom: 0;'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #778B82; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1.5px;'>Sandton Property Operations</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 800; margin-bottom: 0; text-shadow: 0px 2px 4px rgba(255,255,255,0.8);'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #4A5D54; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;'>Sandton Property Operations</p>", unsafe_allow_html=True)
 
 with col_right:
-    # Pulling the Onomo logo directly from your uploaded file
     st.image("Onomo-Johannesburg-Sandton-Logo-Horizontal-Black.jpg", width=180)
 
 st.divider()
 
-# 4. File Uploader (No Emojis)
+# 4. File Uploader
 uploaded_file = st.file_uploader("Upload TrustYou / Floor Logs (CSV Format)", type=["csv"])
 
 if uploaded_file is not None:
@@ -101,45 +122,44 @@ if uploaded_file is not None:
         with col4:
             st.metric(label="Staff Highlights", value="18", delta="5")
             
-        st.divider()
+        # 6. Interactive Visualizations inside Glass Containers
+        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px; font-weight: 700;'>Departmental Friction Heatmap</h4>", unsafe_allow_html=True)
         
-        # 6. Interactive Visualizations (Strict Corporate Palette)
-        st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px;'>Departmental Friction Heatmap</h4>", unsafe_allow_html=True)
-        
-        # Dummy data for layout
         chart_data = pd.DataFrame({
             "Department": ["Front Desk", "Housekeeping", "Food & Beverage", "Maintenance", "Spa"],
             "Incidents": [12, 18, 9, 24, 3]
         })
         
-        # Bar Chart using Charcoal and the Aleph Green
+        # Aleph Corporate Palette: Deep Greens and Charcoals
         fig = px.bar(
             chart_data, 
             x="Department", 
             y="Incidents",
             color="Department",
-            color_discrete_sequence=["#1A1A1A", "#778B82", "#333333", "#A9B5B0", "#555555"],
+            color_discrete_sequence=["#1A1A1A", "#4A5D54", "#778B82", "#A9B5B0", "#333333"],
         )
         
         fig.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(255,255,255,0.2)",
             paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#1A1A1A"),
+            font=dict(color="#1A1A1A", size=14),
             showlegend=False,
             margin=dict(t=10, b=10, l=0, r=0)
         )
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#EAEAEA')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(74, 93, 84, 0.2)')
         
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         
-        st.divider()
-        
-        # 7. Raw Data Preview
-        st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px;'>Correlated Data Audit</h4>", unsafe_allow_html=True)
+        # 7. Raw Data Preview inside Glass Container
+        st.markdown("<div class='glass-container' style='margin-top: 30px;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px; font-weight: 700;'>Correlated Data Audit</h4>", unsafe_allow_html=True)
         st.dataframe(df.head(10), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Error reading file: {e}")
         
 else:
-    st.markdown("<p style='text-align: center; color: #666666; margin-top: 2em;'>Awaiting data. Please upload the latest CSV report above to populate the dashboard.</p>", unsafe_allow_html=True)
+    st.markdown("<div class='glass-container'><p style='text-align: center; color: #1A1A1A; font-weight: 600; font-size: 1.2rem; margin: 0;'>Awaiting data. Please upload the latest CSV report above to ignite the engine.</p></div>", unsafe_allow_html=True)
