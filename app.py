@@ -9,48 +9,49 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Forced Background & Glassmorphism CSS
+# 2. Nuclear CSS - Forcing the Background Image & Glassmorphism
 st.markdown("""
 <style>
-    /* Force the background image using Streamlit's new container IDs */
-    [data-testid="stAppViewContainer"] {
-        background-image: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.7)), 
-                          url('https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    
-    /* Make the top header bar transparent so it doesn't block the image */
-    [data-testid="stHeader"] {
+    /* 1. Force the background image on the absolute lowest layers */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background: url('https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80') no-repeat center center fixed !important;
+        background-size: cover !important;
         background-color: transparent !important;
     }
     
+    /* 2. Add a white tint over the image so the black text is still readable */
+    .stApp > header {
+        background-color: rgba(255,255,255,0.7) !important;
+    }
+    
+    [data-testid="stAppViewBlockContainer"] {
+        background-color: rgba(255, 255, 255, 0.6) !important;
+        border-radius: 15px;
+        padding: 2rem !important;
+        margin-top: 2rem !important;
+        backdrop-filter: blur(5px);
+    }
+
     /* Sharp Corporate Typography */
     h1, h2, h3, h4, h5, h6, p, span, div {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
     
-    /* Invert the Aleph logo colors (White to Black) */
+    /* Fix Aleph Logo */
     div[data-testid="column"]:nth-of-type(1) img {
         filter: invert(1);
     }
     
-    /* Metric Cards - Frosted Glass Effect */
+    /* Glassmorphism Metric Cards */
     div[data-testid="metric-container"] {
-        background: rgba(255, 255, 255, 0.75) !important;
-        backdrop-filter: blur(16px) !important;
-        -webkit-backdrop-filter: blur(16px) !important;
+        background: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(12px) !important;
         padding: 20px;
         border-radius: 12px;
-        border-top: 5px solid #4A5D54; /* Aleph Corporate Deep Green */
-        border-left: 1px solid rgba(255,255,255,0.6);
-        border-right: 1px solid rgba(255,255,255,0.6);
-        border-bottom: 1px solid rgba(255,255,255,0.6);
+        border-top: 5px solid #4A5D54; 
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
     }
     
-    /* Metric Labels */
     div[data-testid="metric-container"] label {
         color: #4A5D54 !important;
         font-weight: 800 !important;
@@ -59,32 +60,28 @@ st.markdown("""
         letter-spacing: 1px;
     }
     
-    /* Metric Values */
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
         color: #1A1A1A !important; 
         font-weight: 800 !important;
         font-size: 2.8rem !important;
     }
 
-    /* Uploader Styling - Glassmorphism */
+    /* Glassmorphism Uploader */
     section[data-testid="stFileUploadDropzone"] {
-        background: rgba(255, 255, 255, 0.65) !important;
+        background: rgba(255, 255, 255, 0.75) !important;
         backdrop-filter: blur(12px) !important;
-        border: 2px dashed #4A5D54;
+        border: 2px dashed #4A5D54 !important;
         border-radius: 12px;
         padding: 30px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
     }
     
-    /* Custom Glass Containers for Charts and Data */
+    /* Glassmorphism Data Containers */
     .glass-container {
-        background: rgba(255, 255, 255, 0.75);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px);
         padding: 25px;
         border-radius: 12px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
-        border: 1px solid rgba(255,255,255,0.6);
         margin-top: 20px;
     }
 </style>
@@ -94,18 +91,20 @@ st.markdown("""
 col_left, col_center, col_right = st.columns([1, 2, 1])
 
 with col_left:
-    # Adding a try/except visual fallback in case the filename is still slightly off
     try:
         st.image("3ec1afe8-cd02-43ff-95aa-80b35415a9d1.png", width=160)
     except:
-        st.error("Aleph Logo file not found. Check exact GitHub name/extension.")
+        st.error("Aleph Logo missing. Please ensure exact file name.")
 
 with col_center:
-    st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 900; margin-bottom: 0; text-shadow: 0px 2px 10px rgba(255,255,255,0.9);'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #4A5D54; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0px 1px 5px rgba(255,255,255,0.8);'>Sandton Property Operations</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 900; margin-bottom: 0;'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #4A5D54; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;'>Sandton Property Operations</p>", unsafe_allow_html=True)
 
 with col_right:
-    st.image("Onomo-Johannesburg-Sandton-Logo-Horizontal-Black.jpg", width=180)
+    try:
+        st.image("Onomo-Johannesburg-Sandton-Logo-Horizontal-Black.jpg", width=180)
+    except:
+        st.error("Onomo Logo missing.")
 
 st.divider()
 
@@ -128,7 +127,7 @@ if uploaded_file is not None:
         with col4:
             st.metric(label="Staff Highlights", value="18", delta="5")
             
-        # 6. Interactive Visualizations inside Glass Containers
+        # 6. Interactive Visualizations
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px; font-weight: 800;'>Departmental Friction Heatmap</h4>", unsafe_allow_html=True)
         
@@ -137,7 +136,6 @@ if uploaded_file is not None:
             "Incidents": [12, 18, 9, 24, 3]
         })
         
-        # Aleph Corporate Palette: Deep Greens and Charcoals
         fig = px.bar(
             chart_data, 
             x="Department", 
@@ -158,7 +156,7 @@ if uploaded_file is not None:
         st.plotly_chart(fig, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # 7. Raw Data Preview inside Glass Container
+        # 7. Raw Data Preview
         st.markdown("<div class='glass-container' style='margin-top: 30px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; margin-bottom: 20px; font-weight: 800;'>Correlated Data Audit</h4>", unsafe_allow_html=True)
         st.dataframe(df.head(10), use_container_width=True)
