@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import base64
 import os
 
 # 1. Page Configuration
@@ -10,7 +11,27 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Premium Corporate CSS
+# 2. Base64 HTML Image Renderer (Bypasses Streamlit's image wrappers)
+def render_image(filepath, width, mix_blend=False, align="left"):
+    if not os.path.exists(filepath):
+        return f"<p style='color:red; font-size:12px;'>Missing: {filepath}</p>"
+    
+    with open(filepath, "rb") as f:
+        data = base64.b64encode(f.read()).decode("utf-8")
+    
+    mime = "image/png" if filepath.lower().endswith(".png") else "image/jpeg"
+    blend_style = "mix-blend-mode: multiply;" if mix_blend else ""
+    
+    if align == "right":
+        align_style = "margin-left: auto; display: block;"
+    elif align == "center":
+        align_style = "margin: 0 auto; display: block;"
+    else:
+        align_style = "display: block;"
+        
+    return f'<img src="data:{mime};base64,{data}" style="width: {width}; {blend_style} {align_style}">'
+
+# 3. Premium Corporate CSS
 st.markdown("""
 <style>
     /* Premium Light Canvas */
@@ -28,18 +49,12 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    /* MAGIC FIX: Melt the white backgrounds off the logos */
-    div[data-testid="column"]:nth-of-type(1) img, 
-    div[data-testid="column"]:nth-of-type(3) img {
-        mix-blend-mode: multiply;
-    }
-    
     /* Metric Cards */
     div[data-testid="metric-container"] {
         background: #FFFFFF !important;
         padding: 24px;
         border-radius: 8px;
-        border-top: 4px solid #7EC8BD; /* Matched to the new Aleph Mint Green */
+        border-top: 4px solid #7EC8BD; 
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         border: 1px solid #EAEAEA;
     }
@@ -68,39 +83,32 @@ st.markdown("""
     }
     
     section[data-testid="stFileUploadDropzone"] {
-        border: 2px dashed #7EC8BD !important; /* Matched to Aleph Mint */
+        border: 2px dashed #7EC8BD !important; 
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Persistent Header (Always visible)
+# 4. Persistent Header
 col_logo1, col_title, col_logo2 = st.columns([1, 2, 1])
 
 with col_logo1:
-    if os.path.exists("aleph_logo.png"):
-        st.image("aleph_logo.png", width=160)
-    else:
-        st.error("Missing: aleph_logo.png")
+    # Applying the multiply blend mode directly to the HTML to melt the white background
+    st.markdown(render_image("aleph_logo.png", width="160px", mix_blend=True, align="left"), unsafe_allow_html=True)
 
 with col_title:
     st.markdown("<h2 style='text-align: center; color: #1A1A1A; font-weight: 900; margin-bottom: 0;'>SYNERGY COMMAND CENTER</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #7EC8BD; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;'>Sandton Property Operations</p>", unsafe_allow_html=True)
 
 with col_logo2:
-    if os.path.exists("onomo_logo.jpg"):
-        # Pushed to the right
-        st.markdown("<div style='display: flex; justify-content: flex-end;'>", unsafe_allow_html=True)
-        st.image("onomo_logo.jpg", width=180)
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.error("Missing: onomo_logo.jpg")
+    # Applying the multiply blend mode and pushing to the right
+    st.markdown(render_image("onomo_logo.jpg", width="180px", mix_blend=True, align="right"), unsafe_allow_html=True)
 
 st.divider()
 
-# 4. The Uploader
+# 5. The Uploader
 uploaded_file = st.file_uploader("Upload TrustYou / Floor Logs (CSV Format)", type=["csv"])
 
-# 5. Dynamic State Router
+# 6. Dynamic State Router
 if uploaded_file is None:
     # --- STATE 1: THE WELCOME SCREEN ---
     welcome_left, welcome_right = st.columns([1, 1.2])
@@ -110,18 +118,14 @@ if uploaded_file is None:
         st.markdown("<p style='color: #666666; font-size: 1.2rem; line-height: 1.6;'>Ignite the engine by uploading the latest weekly CSV report above. The system will automatically correlate guest sentiment with our on-the-ground floor trackers.</p>", unsafe_allow_html=True)
     
     with welcome_right:
-        if os.path.exists("vibe1.jpg"):
-            # Removed the caption
-            st.image("vibe1.jpg", use_column_width=True)
-        else:
-            st.info("Upload 'vibe1.jpg' to your GitHub to display the lifestyle image here.")
+        # Render the lifestyle image cleanly without any Streamlit captions
+        st.markdown(render_image("vibe1.jpg", width="100%", mix_blend=False, align="center"), unsafe_allow_html=True)
 
 else:
     # --- STATE 2: THE ACTIVE DASHBOARD ---
     try:
         df = pd.read_csv(uploaded_file)
         
-        # Top-Level Management Metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -133,11 +137,9 @@ else:
         with col4:
             st.metric(label="Staff Highlights", value="18", delta="5")
             
-        # Interactive Visualizations
         st.markdown("<div class='glass-container' style='margin-top: 30px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; font-weight: 800;'>Departmental Friction Heatmap</h4>", unsafe_allow_html=True)
         
-        # Placeholder Chart Data
         chart_data = pd.DataFrame({
             "Department": ["Front Desk", "Housekeeping", "Food & Beverage", "Maintenance", "Spa"],
             "Incidents": [12, 18, 9, 24, 3]
@@ -163,7 +165,6 @@ else:
         st.plotly_chart(fig, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # Raw Data Preview
         st.markdown("<div class='glass-container' style='margin-top: 30px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #1A1A1A; font-weight: 800;'>Correlated Data Audit</h4>", unsafe_allow_html=True)
         st.dataframe(df.head(10), use_container_width=True)
