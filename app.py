@@ -90,30 +90,30 @@ def parse_pdf_flash_report(pdf_file):
         full_text = ""
         for page in reader.pages:
             t = page.extract_text()
-            if t: full_text += t + "\n"
+            if t: full_text += t + " "
             
-        # Re-join lines that might have been broken mid-string by PDF formatting
-        full_text = full_text.replace('\n","', '","')
-        lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+        # FIX: Flatten the PDF by completely stripping newlines and quotes to form a clean CSV string
+        flat_text = full_text.replace('\n', '').replace('\r', '').replace('"', '')
         
-        for line in lines:
-            clean_line = line.replace('"', '').strip()
-            lower_line = clean_line.lower()
+        def get_mtd(labels):
+            for label in labels:
+                # Target exact strings safely (e.g. ,Room Revenue,DayVal,MTDVal)
+                pattern = rf'(?:^|,)\s*{label}\s*,\s*(-?[\d\.,]+)\s*,\s*(-?[\d\.,]+)'
+                match = re.search(pattern, flat_text, re.IGNORECASE)
+                if match:
+                    # Group 2 represents the Month To Date figure
+                    return float(match.group(2).replace(",", ""))
+            return None
             
-            # Robust extraction of financial figures with embedded commas
-            numbers = re.findall(r'\d{1,3}(?:,\d{3})*(?:\.\d+)?', clean_line)
-            valid_numbers = [n for n in numbers if n != ""]
-            
-            # Match strict labels and pull Index 1 (MTD Column)
-            if lower_line.startswith("adr") and not lower_line.startswith("adr minus"):
-                if len(valid_numbers) >= 2:
-                    actuals["ADR"] = float(valid_numbers[1].replace(",", ""))
-            elif lower_line.startswith("room revenue"):
-                if len(valid_numbers) >= 2:
-                    actuals["Room Revenue"] = float(valid_numbers[1].replace(",", ""))
-            elif lower_line.startswith("food and beverage revenue") or lower_line.startswith("f&b revenue"):
-                if len(valid_numbers) >= 2:
-                    actuals["F&B Revenue"] = float(valid_numbers[1].replace(",", ""))
+        adr = get_mtd(["ADR", "Average Room Rate"])
+        if adr is not None: actuals["ADR"] = adr
+        
+        rr = get_mtd(["Room Revenue", "Total Room Rev"])
+        if rr is not None: actuals["Room Revenue"] = rr
+        
+        fb = get_mtd(["Food And Beverage Revenue", "F&B Revenue", "Food & Beverage Revenue"])
+        if fb is not None: actuals["F&B Revenue"] = fb
+
     except Exception:
         pass
     return actuals
@@ -378,8 +378,8 @@ else:
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            st.markdown("<div class='glass-container' style='margin-top: 25px;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
+            # FIX: Empty HTML wrapper removed to ensure seamless background
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 20px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
@@ -388,18 +388,15 @@ else:
                 actual = plat_data['Score'].mean() if not plat_data.empty else 0
                 achieved, missing = min(actual, target), max(0, target - actual)
                 fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
-                fig.update_layout(showlegend=False, height=140, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target:.0f}</span>", x=0.5, y=0.5, font_size=14, showarrow=False)])
+                fig.update_layout(showlegend=False, height=140, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target:.0f}</span>", x=0.5, y=0.5, font_size=14, showarrow=False)], paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 with pie_cols[idx]:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
-            # Financial Target Performance Matrix
-            st.markdown("<div class='glass-container' style='margin-top: 5px;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
-            
-            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
+            # FIX: Empty HTML wrapper removed to ensure seamless background
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 40px; margin-bottom: 20px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
             f_cols = st.columns(3)
+            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
             
             for idx, metric in enumerate(f_metrics):
                 t_val = float(st.session_state.gm_targets.get(metric, 1.0))
@@ -414,14 +411,14 @@ else:
                 if metric == "ADR": v_text = f"Variance: {prefix}{variance:,.2f}"
                 
                 with f_cols[idx]:
+                    # The native HTML box stays because it natively supports the content block inside
                     st.markdown(f"""
-                    <div style='background: #F8F9FA; padding: 15px; border-radius: 8px; border-left: 4px solid {v_color};'>
+                    <div style='background: #FFFFFF; padding: 25px; border-radius: 16px; border-top: 4px solid {v_color}; box-shadow: 0 10px 30px rgba(0,0,0,0.02);'>
                         <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
-                        <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
+                        <div style='font-size: 1.8rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
                         <div style='font-size: 0.85rem; color: {v_color}; font-weight: 700; margin-top: 5px;'>{v_text} ({pct_achieved:.1f}% Achieved)</div>
                     </div>
                     """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
