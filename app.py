@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction & Completely Reworked Regular Expression PDF Parser
+# 4. Data Extraction & Bulletproof Regex Table Parser
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -92,10 +92,8 @@ def parse_pdf_flash_report(pdf_file):
             t = page.extract_text()
             if t: full_text += t + " "
             
-        # Flatten the text block completely to prevent line-break splitting
         flat_text = full_text.replace('\n', ' ').replace('\r', ' ')
         
-        # Define all possible labels from standard flash exports
         metrics = {
             "ADR": ["ADR", "Average Room Rate"],
             "Room Revenue": ["Room Revenue", "Total Room Rev", "Rooms Revenue"],
@@ -104,12 +102,10 @@ def parse_pdf_flash_report(pdf_file):
         
         for key, aliases in metrics.items():
             for alias in aliases:
-                # The engine strictly targets the exact label, bypasses ONLY punctuation/quotes, captures the 1st number, then the 2nd number (MTD).
                 pattern = rf'{re.escape(alias)}[^a-zA-Z\d]+(\d[0-9,\.]*)[^a-zA-Z\d]+(\d[0-9,\.]*)'
                 match = re.search(pattern, flat_text, re.IGNORECASE)
                 if match:
                     try:
-                        # Group 2 isolates the MTD figure. Strips internal commas safely.
                         val = float(match.group(2).replace(",", ""))
                         actuals[key] = val
                         break
@@ -347,15 +343,18 @@ else:
             detected_dept = mine_review_text_department(row.get('Review Text', ''))
             author_name = str(row['Author name']).lower().strip()
             review_date = row['Published date']
+            
+            # STRICT FIX: Clean isolation of unmapped positive vs negative reviews
             if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
-                if detected_dept != "General": return ("Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)", 0.0)
-                return ("General Feedback", 0.0)
+                return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
+                
             time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
             for _, fb_row in live_db[time_window].iterrows():
                 if author_name in str(fb_row['guestName']).lower():
                     actual_cost = float(fb_row.get('cost', 0.0))
                     if fb_row['type'] == 'compliment': return ("Praise Confirmed", 0.0)
                     return ("Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation", actual_cost)
+                    
             return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
 
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
@@ -366,8 +365,12 @@ else:
         
         total_reviews = len(ty_df)
         avg_score = ty_df['Score'].mean()
+        
+        # STRICT FIX: The True Operational Catch Rate calculation
+        caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["Resolved In-House", "Failed Escalation"])])
         actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
-        catch_rate = ((total_reviews - actual_blindspots) / total_reviews) * 100 if total_reviews > 0 else 0
+        total_actionable_issues = caught_issues + actual_blindspots
+        catch_rate = (caught_issues / total_actionable_issues) * 100 if total_actionable_issues > 0 else 0
 
         tab1, tab2, tab3 = st.tabs(["Executive Summary", "Service Recovery & ROI", "Floor Operations & Heatmap"])
 
@@ -377,9 +380,10 @@ else:
             with col1: st.metric("Reviews Correlated", f"{total_reviews}")
             with col2: st.metric("Overall Score", f"{avg_score:.1f}%")
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
-            with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
+            with col4: st.metric("True Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 20px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
+            st.markdown("<div class='glass-container' style='margin-top: 25px;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
@@ -392,10 +396,14 @@ else:
                 with pie_cols[idx]:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 40px; margin-bottom: 20px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
-            f_cols = st.columns(3)
+            # Financial Target Performance Matrix
+            st.markdown("<div class='glass-container' style='margin-top: 5px;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
+            
             f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
+            f_cols = st.columns(3)
             
             for idx, metric in enumerate(f_metrics):
                 t_val = float(st.session_state.gm_targets.get(metric, 1.0))
@@ -411,12 +419,13 @@ else:
                 
                 with f_cols[idx]:
                     st.markdown(f"""
-                    <div style='background: #FFFFFF; padding: 25px; border-radius: 16px; border-top: 4px solid {v_color}; box-shadow: 0 10px 30px rgba(0,0,0,0.02);'>
+                    <div style='background: #F8F9FA; padding: 15px; border-radius: 8px; border-left: 4px solid {v_color};'>
                         <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
-                        <div style='font-size: 1.8rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
+                        <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
                         <div style='font-size: 0.85rem; color: {v_color}; font-weight: 700; margin-top: 5px;'>{v_text} ({pct_achieved:.1f}% Achieved)</div>
                     </div>
                     """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
