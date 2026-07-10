@@ -82,31 +82,42 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Ingestion & Broadened Parsing Engines
+# 4. Data Extraction & Advanced Table Parser
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
         reader = PdfReader(pdf_file)
-        lines = []
+        full_text = ""
         for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                for line in text.split("\n"):
-                    lines.append(line.strip())
-                    
+            t = page.extract_text()
+            if t: full_text += t + "\n"
+            
+        lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+        
         for line in lines:
-            # Broadened positional lookup matches numbers following hospitality metrics
-            if any(k in line.lower() for k in ["adr", "average room rate", "avg rate", "arr"]):
-                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
-                if numbers: actuals["ADR"] = float(numbers[0].replace(" ", "").replace(",", ""))
+            # Clean string structures into parsable rows
+            segments = [seg.strip().replace('"', '') for seg in line.split('","')]
+            if not segments or len(segments) < 2:
+                continue
                 
-            if any(k in line.lower() for k in ["room revenue", "room rev", "total room rev", "rooms rev"]):
-                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
-                if numbers: actuals["Room Revenue"] = float(numbers[0].replace(" ", "").replace(",", ""))
-                
-            if any(k in line.lower() for k in ["f&b revenue", "f & b", "food & beverage", "total f&b", "food and beverage"]):
-                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
-                if numbers: actuals["F&B Revenue"] = float(numbers[0].replace(" ", "").replace(",", ""))
+            label = segments[0].lower()
+            
+            # Target column row 2 (Month To Date Actuals)
+            if label == "adr" and len(segments) >= 3:
+                try:
+                    actuals["ADR"] = float(segments[2].replace(",", "").strip())
+                except ValueError:
+                    pass
+            elif label == "room revenue" and len(segments) >= 3:
+                try:
+                    actuals["Room Revenue"] = float(segments[2].replace(",", "").strip())
+                except ValueError:
+                    pass
+            elif (label == "food and beverage revenue" or label == "food & beverage revenue") and len(segments) >= 3:
+                try:
+                    actuals["F&B Revenue"] = float(segments[2].replace(",", "").strip())
+                except ValueError:
+                    pass
     except Exception:
         pass
     return actuals
@@ -387,7 +398,7 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Financial Target Performance Matrix (Fixed White Block Divs Removed)
+            # Financial Target Performance Matrix
             st.markdown("<div class='glass-container' style='margin-top: 5px;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
             
