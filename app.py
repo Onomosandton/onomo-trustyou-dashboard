@@ -244,10 +244,10 @@ if not st.session_state.active_report:
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
             f_c1, f_c2, f_c3 = st.columns(3)
             
-            # Formatted displays to ensure data visualization consistency
+            # Fixed: Properly closed f-string syntax format brackets
             with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{float(st.session_state.gm_targets.get('ADR', 1500.0)):,.2f}")
             with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('Room Revenue', 500000.0)):,.0f}")
-            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0):,.0f}")
+            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0)):,.0f}")
             
             if st.button("Save Targets", use_container_width=True):
                 def sanitize_input(val_str, fallback):
