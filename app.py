@@ -62,9 +62,6 @@ st.markdown("""
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2rem !important; }
     .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02) !important; margin-bottom: 25px; }
     
-    .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
-    .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
-    
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
@@ -72,7 +69,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines (Live Vercel Data)
+# 4. Data Extraction Pipelines (100% Live)
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -147,7 +144,7 @@ aleph_img_tag = '<img src="data:image/png;base64,' + aleph_b64 + '" width="160" 
 onomo_img_tag = '<img src="data:image/jpeg;base64,' + onomo_b64 + '" width="170" style="mix-blend-mode: multiply;">' if onomo_b64 else '<span style="font-weight:900; font-size:20px;">ONOMO</span>'
 
 header_html = """
-<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0 20px 0; border-bottom: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0 20px 0; border-bottom: 1px solid rgba(0,0,0,0.05); margin-bottom: 30px;">
     <div style="flex: 1;">""" + aleph_img_tag + """</div>
     <div style="flex: 2; text-align: center;">
         <h2 style="margin: 0; color: #1A1A1A; font-weight: 900; letter-spacing: -0.5px; font-size: 2rem;">INSIGHTS DASHBOARD</h2>
@@ -160,62 +157,60 @@ st.markdown(header_html, unsafe_allow_html=True)
 
 # 6. Central Application Logic
 if not st.session_state.active_report:
-    # --- CONTROL PANEL (TOP WIDTH) ---
-    with st.expander("TARGET CONFIGURATIONS", expanded=False):
-        st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
-        t_c1, t_c2 = st.columns(2)
-        new_targets = {}
-        with t_c1:
-            new_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
-            new_targets["google.com"] = st.slider("Google Score", 50, 100, st.session_state.gm_targets.get("google.com", 85))
-        with t_c2:
-            new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
-            new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
-        if st.button("SAVE TARGETS", use_container_width=True):
-            st.session_state.gm_targets = new_targets
-            save_targets(new_targets)
-            st.success("System configurations updated.")
-            
-    with st.expander("DATA SYNCHRONIZATION", expanded=False):
-        col_csv, col_xml = st.columns(2)
-        with col_csv:
-            csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
-        with col_xml:
-            xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("GENERATE ANALYTICS", use_container_width=True, type="primary"):
-            if csv_file is not None:
-                parsed_ty = pd.read_csv(csv_file)
-                parsed_ty['Score'] = pd.to_numeric(parsed_ty['Score'], errors='coerce')
-                parsed_ty['Published date'] = pd.to_datetime(parsed_ty['Published date'], errors='coerce').dt.tz_localize(None)
-                st.session_state.ty_df = parsed_ty
-                
-                if xml_file is not None:
-                    st.session_state.opera_df = parse_opera_xml(xml_file)
-                else:
-                    st.session_state.opera_df = pd.DataFrame()
-                    
-                st.session_state.active_report = True
-                st.rerun()
-            else:
-                st.error("Please upload the required TrustYou CSV to proceed.")
-
-    st.markdown("<hr style='margin: 30px 0px;'>", unsafe_allow_html=True)
-
-    # --- WELCOME LANDING PAGE (BOTTOM) ---
+    # --- WELCOME LANDING PAGE ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
-        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Operations Hub.</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #666666; font-size: 1.15rem; line-height: 1.6; margin-bottom: 30px; max-width: 95%;'>Sync live floor trackers with property management data to identify service gaps, allocate workflows, and protect guest satisfaction scores.</p>", unsafe_allow_html=True)
+        # Expander 1: Targets
+        with st.expander("TARGET CONFIGURATIONS", expanded=False):
+            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
+            t_c1, t_c2 = st.columns(2)
+            new_targets = {}
+            with t_c1:
+                new_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
+                new_targets["google.com"] = st.slider("Google Score", 50, 100, st.session_state.gm_targets.get("google.com", 85))
+            with t_c2:
+                new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
+                new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
+            if st.button("SAVE TARGETS", use_container_width=True):
+                st.session_state.gm_targets = new_targets
+                save_targets(new_targets)
+                st.success("System configurations updated.")
+                
+        # Expander 2: File Uploads & Launch
+        with st.expander("DATA SYNCHRONIZATION", expanded=True):
+            col_csv, col_xml = st.columns(2)
+            with col_csv:
+                csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
+            with col_xml:
+                xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("GENERATE ANALYTICS", use_container_width=True, type="primary"):
+                if csv_file is not None:
+                    parsed_ty = pd.read_csv(csv_file)
+                    parsed_ty['Score'] = pd.to_numeric(parsed_ty['Score'], errors='coerce')
+                    parsed_ty['Published date'] = pd.to_datetime(parsed_ty['Published date'], errors='coerce').dt.tz_localize(None)
+                    st.session_state.ty_df = parsed_ty
+                    
+                    if xml_file is not None:
+                        st.session_state.opera_df = parse_opera_xml(xml_file)
+                    else:
+                        st.session_state.opera_df = pd.DataFrame()
+                        
+                    st.session_state.active_report = True
+                    st.rerun()
+                else:
+                    st.error("Please upload the required TrustYou CSV to proceed.")
         
+        st.markdown("<hr style='margin: 25px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+
+        # Sleek, borderless Live Floor Snapshot
         tracker_state = "System Online" if not fb_df.empty else "System Offline"
         st.markdown(f"""
-        <div class='glass-container' style='margin-bottom: 15px;'>
-            <h4 style='margin-top:0; color: #1A1A1A; font-weight: 900;'>Live Floor Snapshot</h4>
-            <div style='display: flex; justify-content: space-between; margin-top: 15px; padding-bottom: 5px;'>
+        <div style='margin-bottom: 15px;'>
+            <div style='color: #1A1A1A; font-weight: 800; font-size: 1.05rem; text-transform: uppercase; margin-bottom: 20px;'>LIVE FLOOR SNAPSHOT</div>
+            <div style='display: flex; justify-content: space-between; padding-bottom: 5px;'>
                 <div>
                     <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Tracker Status</span><br>
                     <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{tracker_state}</span>
@@ -232,6 +227,7 @@ if not st.session_state.active_report:
         </div>
         """, unsafe_allow_html=True)
         
+        # Drill-ins mapped directly under the sleek snapshot
         if not fb_df.empty:
             with st.expander("VIEW ACTIVE BACKLOG DETAILS", expanded=False):
                 active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
