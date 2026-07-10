@@ -172,6 +172,12 @@ if not fb_df.empty and 'date' in fb_df.columns:
         fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
     
+    # NEW: Secure normalization of ticket types
+    if 'type' in fb_df.columns:
+        fb_df['ticket_type'] = fb_df['type'].fillna('complaint').str.lower()
+    else:
+        fb_df['ticket_type'] = 'complaint'
+        
     open_tickets_total = len(fb_df[fb_df['status'] == 'open'])
     last_24h_boundary = pd.Timestamp.now().replace(tzinfo=None) - pd.Timedelta(days=1)
     open_tickets_24h = len(fb_df[(fb_df['status'] == 'open') & (fb_df['date'] >= last_24h_boundary)])
@@ -227,7 +233,7 @@ if not st.session_state.active_report:
         
         with st.expander("View Active Backlog Details", expanded=False):
             if not fb_df.empty:
-                active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
+                active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'ticket_type']].sort_values('date', ascending=False)
                 if not active_df.empty: st.dataframe(active_df, hide_index=True, use_container_width=True)
                 else: st.success("[STATUS NORMAL] No open tickets currently backlogged.")
             else: st.info("System Offline: Awaiting live tracker data.")
@@ -338,7 +344,7 @@ else:
                 if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author: return op_row['Room_No']
             return None
 
-        # STRICT MAPPING: Primary matching by Opera Room Number, fallback to Guest Name
+        # NEW: Strict isolation of Praises vs Complaints
         def cross_reference_synergy(row, live_db):
             score = row.get('Score', 0)
             review_date = row.get('Published date')
@@ -346,41 +352,42 @@ else:
             
             has_ticket = False
             ticket_status = 'open'
+            ticket_type = 'complaint'
             actual_cost = 0.0
             
             if not live_db.empty and pd.notna(review_date):
                 time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=10)))
                 valid_tickets = live_db[time_window]
                 
-                # 1. Match by Room First (The precise operational link)
                 if room and 'Room' in valid_tickets.columns:
                     matches = valid_tickets[valid_tickets['Room'] == str(room)]
                     if not matches.empty:
                         has_ticket = True
                         ticket_status = matches.iloc[0]['status'].lower()
+                        ticket_type = matches.iloc[0].get('ticket_type', 'complaint').lower()
                         actual_cost = float(matches.iloc[0].get('cost', 0.0))
                 
-                # 2. Fallback to Name matching if room is unknown
                 if not has_ticket and str(row.get('Author name')).lower().strip() not in ['nan', '']:
                     author_name = str(row['Author name']).lower().strip()
                     for _, fb_row in valid_tickets.iterrows():
                         if author_name in str(fb_row.get('guestName', '')).lower():
                             has_ticket = True
                             ticket_status = str(fb_row.get('status', 'open')).lower()
+                            ticket_type = str(fb_row.get('ticket_type', 'complaint')).lower()
                             actual_cost = float(fb_row.get('cost', 0.0))
                             break
             
-            # The 4-Point Matrix Accountability Logic
+            # The Updated Praise vs Complaint Matrix Logic
             if score >= 80:
-                if has_ticket and ticket_status == 'resolved': return ("True Save", actual_cost)
-                elif has_ticket: return ("Praise with Open Ticket", actual_cost)
+                if has_ticket and ticket_type == 'compliment': return ("Praise Confirmed", actual_cost)
+                elif has_ticket and ticket_type != 'compliment' and ticket_status == 'resolved': return ("True Save", actual_cost)
+                elif has_ticket and ticket_type != 'compliment' and ticket_status != 'resolved': return ("Lucky Escape", actual_cost)
                 else: return ("Flawless Stay", 0.0)
             else:
-                if has_ticket and ticket_status == 'resolved': return ("False Save", actual_cost)
-                elif has_ticket and ticket_status != 'resolved': return ("Failed Escalation", actual_cost)
-                else: return ("Blindspot", 0.0)
+                if has_ticket and ticket_type != 'compliment' and ticket_status == 'resolved': return ("False Save", actual_cost)
+                elif has_ticket and ticket_type != 'compliment' and ticket_status != 'resolved': return ("Failed Escalation", actual_cost)
+                else: return ("Blindspot", 0.0) # Captures zero tickets OR instances where a compliment was logged but guest left a bad review.
 
-        # Apply Triangulation
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
         ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
         synergy_results = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
@@ -390,8 +397,11 @@ else:
         total_reviews = len(ty_df)
         avg_score = ty_df['Score'].mean()
         
-        caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["True Save", "False Save", "Failed Escalation"])])
+        caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["True Save", "False Save", "Failed Escalation", "Lucky Escape"])])
         actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Blindspot"])
+        flawless_stays = len(ty_df[ty_df['Synergy_Metric'] == "Flawless Stay"])
+        praise_confirmed = ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"]
+        
         total_actionable_issues = caught_issues + actual_blindspots
         catch_rate = (caught_issues / total_actionable_issues) * 100 if total_actionable_issues > 0 else 0
 
@@ -447,18 +457,22 @@ else:
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
             
-            # 1. NEW: High-Level Volume Overview
             total_tickets = len(fb_df)
+            total_complaints = len(fb_df[fb_df['ticket_type'] != 'compliment']) if not fb_df.empty else 0
+            total_praises = len(fb_df[fb_df['ticket_type'] == 'compliment']) if not fb_df.empty else 0
+            
+            silent_saves = total_complaints - caught_issues if total_complaints > caught_issues else 0
+            
             st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Volume & Operational Engagement</h4>", unsafe_allow_html=True)
-            v1, v2, v3 = st.columns(3)
+            v1, v2, v3, v4 = st.columns(4)
             with v1: st.metric("Total Post-Stay Reviews", f"{total_reviews}")
-            with v2: st.metric("Total In-House Tickets Logged", f"{total_tickets}")
+            with v2: st.metric("Complaints Logged (Live)", f"{total_complaints}")
+            with v3: st.metric("Praises Logged (Live)", f"{total_praises}")
             engagement_rate = (total_tickets / total_reviews * 100) if total_reviews > 0 else 0
-            with v3: st.metric("Tracker Engagement Ratio", f"{engagement_rate:.1f}%")
+            with v4: st.metric("Tracker Engagement Ratio", f"{engagement_rate:.1f}%")
             
             st.markdown("<hr style='margin: 20px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
             
-            # 2. NEW: The True Resolution Accountability Matrix
             st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>The True Resolution Matrix</h4>", unsafe_allow_html=True)
             
             true_saves = ty_df[ty_df['Synergy_Metric'] == 'True Save']
@@ -475,8 +489,37 @@ else:
             with c4: st.metric("Blindspots", f"{len(blindspots)}", "No Ticket & Score <80%", delta_color="inverse")
             
             st.markdown(f"<p style='font-size: 0.85rem; color: #666; font-weight: 700; margin-top: 10px;'>Total Documented Recovery Spend: ZAR {actual_recovery_spend:,.2f}</p>", unsafe_allow_html=True)
+
+            # NEW: Tri-Column Data Reconciliation Section
+            st.markdown("<hr style='margin: 30px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Data Reconciliation: Closing the Loop</h4>", unsafe_allow_html=True)
             
-            # 3. Drill-down of Failures Only
+            r1, r2, r3 = st.columns(3, gap="large")
+            with r1:
+                st.markdown(f"""
+                <div style='background: #F0F9F8; padding: 20px; border-radius: 8px; border-left: 4px solid #7EC8BD;'>
+                    <div style='color: #4A5D54; font-size: 0.85rem; font-weight: 800; text-transform: uppercase;'>The Missing Reviews</div>
+                    <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{flawless_stays} Flawless Stays</div>
+                    <div style='font-size: 0.85rem; color: #1A1A1A; margin-top: 10px;'>Reviews that scored >80% with no tickets logged. These guests experienced zero friction and required no intervention from your team.</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with r2:
+                st.markdown(f"""
+                <div style='background: #F8F9FA; padding: 20px; border-radius: 8px; border-left: 4px solid #cf6231;'>
+                    <div style='color: #cf6231; font-size: 0.85rem; font-weight: 800; text-transform: uppercase;'>The Missing Complaints</div>
+                    <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{silent_saves} Silent Saves</div>
+                    <div style='font-size: 0.85rem; color: #1A1A1A; margin-top: 10px;'>Complaints logged and resolved by your team that did not match to a negative review. Your team successfully neutralized these frictions in-house.</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with r3:
+                st.markdown(f"""
+                <div style='background: #F4F6FB; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6;'>
+                    <div style='color: #2563eb; font-size: 0.85rem; font-weight: 800; text-transform: uppercase;'>The Praise Pipeline</div>
+                    <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{len(praise_confirmed)} Confirmed Advocates</div>
+                    <div style='font-size: 0.85rem; color: #1A1A1A; margin-top: 10px;'>Out of {total_praises} in-house compliments tracked, {len(praise_confirmed)} directly translated into a highly-rated TrustYou review.</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
             failures_df = ty_df[ty_df['Synergy_Metric'].isin(['False Save', 'Failed Escalation', 'Blindspot'])]
             
             if not failures_df.empty:
