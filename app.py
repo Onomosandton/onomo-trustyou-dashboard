@@ -37,7 +37,7 @@ def load_targets():
             except Exception:
                 pass
     return {
-        "TrustYou Survey": 85, "booking.com": 85, "google.com": 85, "tripadvisor.com": 85,
+        "TrustYou Survey": 85.0, "booking.com": 85.0, "google.com": 85.0, "tripadvisor.com": 85.0,
         "ADR": 1500.0, "Room Revenue": 500000.0, "F&B Revenue": 150000.0
     }
 
@@ -78,11 +78,11 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
-    .streamlit-expanderHeader { font-weight: 800 !important; color: #333 !important; font-size: 1.05rem !important; }
+    .streamlit-expanderHeader { color: #333 !important; font-size: 0.95rem !important; font-weight: 800 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Ingestion & Parsing Engines
+# 4. Data Extraction Pipelines
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -244,16 +244,15 @@ if not st.session_state.active_report:
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
             f_c1, f_c2, f_c3 = st.columns(3)
             
-            # Use safe text fields so the GM can freely type out numbers cleanly
-            with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{st.session_state.gm_targets.get('ADR', 1500.0):,.2f}")
-            with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{st.session_state.gm_targets.get('Room Revenue', 500000.0):,.0f}")
-            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{st.session_state.gm_targets.get('F&B Revenue', 150000.0):,.0f}")
+            # Formatted displays to ensure data visualization consistency
+            with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{float(st.session_state.gm_targets.get('ADR', 1500.0)):,.2f}")
+            with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('Room Revenue', 500000.0)):,.0f}")
+            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0):,.0f}")
             
             if st.button("Save Targets", use_container_width=True):
-                # Clean typed characters automatically in the background so type mismatches never crash the server
                 def sanitize_input(val_str, fallback):
                     try:
-                        clean = re.sub(r'[^\d.]', '', val_str)
+                        clean = re.sub(r'[^\d.]', '', str(val_str))
                         return float(clean) if clean else fallback
                     except Exception:
                         return fallback
