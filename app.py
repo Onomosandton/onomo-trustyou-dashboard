@@ -30,8 +30,10 @@ if 'gm_targets' not in st.session_state:
 
 # 3. Base64 Assets & CSS
 def get_base64_image(filepath):
-    if not os.path.exists(filepath): return ""
-    with open(filepath, "rb") as f: return base64.b64encode(f.read()).decode("utf-8")
+    if not os.path.exists(filepath): 
+        return ""
+    with open(filepath, "rb") as f: 
+        return base64.b64encode(f.read()).decode("utf-8")
 
 aleph_b64 = get_base64_image("aleph_logo.png")
 onomo_b64 = get_base64_image("onomo_logo.jpg")
@@ -56,12 +58,15 @@ st.markdown("""
 # 4. Data Extraction Pipelines
 def fetch_live_firebase_data():
     try:
-        if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
+        if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: 
+            return pd.DataFrame()
+            
         project_id = st.secrets["firebase"]["project_id"]
         base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/artifacts/onomo_live_production_v1/public/data/feedback_entries"
         
         response = requests.get(base_url, params={"pageSize": 300}, timeout=4)
-        if response.status_code != 200: return pd.DataFrame()
+        if response.status_code != 200: 
+            return pd.DataFrame()
             
         documents = response.json().get("documents", [])
         records = []
@@ -73,4 +78,26 @@ def fetch_live_firebase_data():
                 "reason": fields.get("reason", {}).get("stringValue", ""),
                 "status": fields.get("status", {}).get("stringValue", "resolved"),
                 "type": fields.get("type", {}).get("stringValue", "complaint"),
-                "cost":
+                "cost": float(fields.get("cost", {}).get("doubleValue", fields.get("cost", {}).get("integerValue", 0))),
+                "date": pd.to_datetime(fields.get("date", {}).get("stringValue", ""), errors='coerce'),
+                "resolvedAt": pd.to_datetime(fields.get("resolvedAt", {}).get("stringValue", ""), errors='coerce')
+            })
+        return pd.DataFrame(records)
+    except Exception:
+        return pd.DataFrame()
+
+fb_df = fetch_live_firebase_data()
+if not fb_df.empty and 'date' in fb_df.columns:
+    fb_df['date'] = pd.to_datetime(fb_df['date'], errors='coerce').dt.tz_localize(None)
+    if 'resolvedAt' in fb_df.columns:
+        fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
+        fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
+
+# 5. Sidebar: GM Target Setup & File Upload
+with st.sidebar:
+    st.markdown("<h3 style='font-weight:900;'>⚙️ GM Target Setup</h3>", unsafe_allow_html=True)
+    st.markdown("Set Year-End target scores per platform.")
+    
+    new_targets = {}
+    for platform in ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]:
+        new_targets[platform] = st.slider(f"{platform} Target", 50, 100, st.session_state.gm_targets.get(platform, 85))
