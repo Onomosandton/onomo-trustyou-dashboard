@@ -29,7 +29,10 @@ def load_targets():
     if os.path.exists(TARGETS_FILE):
         with open(TARGETS_FILE, "r") as f:
             return json.load(f)
-    return {"TrustYou Survey": 85, "booking.com": 85, "google.com": 85, "tripadvisor.com": 85}
+    return {
+        "TrustYou Survey": 85, "booking.com": 85, "google.com": 85, "tripadvisor.com": 85,
+        "ADR": 1500, "Room Revenue": 500000, "F&B Revenue": 150000
+    }
 
 def save_targets(targets):
     with open(TARGETS_FILE, "w") as f:
@@ -62,16 +65,18 @@ st.markdown("""
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2rem !important; }
     .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02) !important; margin-bottom: 25px; }
     
+    .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
+    .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
+    
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
     
-    /* Sleek styling for expanders to match your requested layout */
-    .streamlit-expanderHeader { color: #333 !important; font-size: 0.95rem !important; }
+    .streamlit-expanderHeader { color: #333 !important; font-size: 0.95rem !important; font-weight: 800 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines (100% Live, No Dummy Data)
+# 4. Data Extraction Pipelines
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -164,7 +169,6 @@ if not st.session_state.active_report:
     
     with welcome_left:
         
-        # Sleek, borderless Live Floor Snapshot matching the screenshot
         tracker_state = "Online" if not fb_df.empty else "Offline"
         st.markdown(f"""
         <div style='margin-bottom: 25px;'>
@@ -186,7 +190,6 @@ if not st.session_state.active_report:
         </div>
         """, unsafe_allow_html=True)
         
-        # 4 Clean Expanders stacked identically
         with st.expander("View Active Backlog Details", expanded=False):
             if not fb_df.empty:
                 active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
@@ -206,6 +209,9 @@ if not st.session_state.active_report:
                 
         with st.expander("Target Configurations", expanded=False):
             st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
+            
+            # --- SECTION 1: ONLINE REVIEW SCORES ---
+            st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
             t_c1, t_c2 = st.columns(2)
             new_targets = {}
             with t_c1:
@@ -214,6 +220,20 @@ if not st.session_state.active_report:
             with t_c2:
                 new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
                 new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
+            
+            st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+            
+            # --- SECTION 2: FINANCIALS ---
+            st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
+            f_c1, f_c2, f_c3 = st.columns(3)
+            with f_c1:
+                new_targets["ADR"] = st.number_input("ADR (ZAR)", value=st.session_state.gm_targets.get("ADR", 1500), step=50)
+            with f_c2:
+                new_targets["Room Revenue"] = st.number_input("Room Revenue (ZAR)", value=st.session_state.gm_targets.get("Room Revenue", 500000), step=10000)
+            with f_c3:
+                new_targets["F&B Revenue"] = st.number_input("F&B Revenue (ZAR)", value=st.session_state.gm_targets.get("F&B Revenue", 150000), step=5000)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Save Targets", use_container_width=True):
                 st.session_state.gm_targets = new_targets
                 save_targets(new_targets)
