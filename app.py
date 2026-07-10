@@ -344,7 +344,6 @@ else:
             author_name = str(row['Author name']).lower().strip()
             review_date = row['Published date']
             
-            # STRICT FIX: Clean isolation of unmapped positive vs negative reviews
             if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
                 return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
                 
@@ -366,7 +365,6 @@ else:
         total_reviews = len(ty_df)
         avg_score = ty_df['Score'].mean()
         
-        # STRICT FIX: The True Operational Catch Rate calculation
         caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["Resolved In-House", "Failed Escalation"])])
         actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
         total_actionable_issues = caught_issues + actual_blindspots
@@ -382,8 +380,7 @@ else:
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("True Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            st.markdown("<div class='glass-container' style='margin-top: 25px;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 15px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
@@ -396,14 +393,10 @@ else:
                 with pie_cols[idx]:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
-            # Financial Target Performance Matrix
-            st.markdown("<div class='glass-container' style='margin-top: 5px;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
-            
-            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 15px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
             f_cols = st.columns(3)
+            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
             
             for idx, metric in enumerate(f_metrics):
                 t_val = float(st.session_state.gm_targets.get(metric, 1.0))
@@ -419,13 +412,12 @@ else:
                 
                 with f_cols[idx]:
                     st.markdown(f"""
-                    <div style='background: #F8F9FA; padding: 15px; border-radius: 8px; border-left: 4px solid {v_color};'>
+                    <div style='background: #FFFFFF; padding: 25px; border-radius: 16px; border-top: 4px solid {v_color}; box-shadow: 0 10px 30px rgba(0,0,0,0.02);'>
                         <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
-                        <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
+                        <div style='font-size: 1.8rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
                         <div style='font-size: 0.85rem; color: {v_color}; font-weight: 700; margin-top: 5px;'>{v_text} ({pct_achieved:.1f}% Achieved)</div>
                     </div>
                     """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
@@ -442,10 +434,8 @@ else:
             with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", delta_color="inverse")
             
             if not slipped_cases.empty:
-                st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
-                st.markdown("<h5 style='color: #8e2a2a; font-weight: 800; margin-bottom: 10px;'>Drill-down: Guests Who Slipped Through (Negative Post-Stay Reviews)</h5>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #8e2a2a; font-weight: 800; margin-top: 30px; margin-bottom: 10px;'>Drill-down: Guests Who Slipped Through (Negative Post-Stay Reviews)</h4>", unsafe_allow_html=True)
                 st.dataframe(slipped_cases[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
         with tab3:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
@@ -462,8 +452,7 @@ else:
             
             col_heat, col_grid = st.columns([1.2, 1], gap="large")
             with col_heat:
-                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Unified Floor Heatmap</h5>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 10px;'>Unified Floor Heatmap</h4>", unsafe_allow_html=True)
                 st.info("Interaction Guide: Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
                 if not heat_df.empty:
                     heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
@@ -474,11 +463,9 @@ else:
                 else:
                     if st.session_state.opera_df.empty: st.warning("Upload the Opera PMS XML file to unlock physical Room-Level TrustYou mapping.")
                     else: st.success("No negative room-specific issues detected across platforms.")
-                st.markdown("</div>", unsafe_allow_html=True)
                 
             with col_grid:
-                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Room-Level Incident Log Interface</h5>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 10px;'>Room-Level Incident Log</h4>", unsafe_allow_html=True)
                 if not ty_df[ty_df['Opera_Room'].notna()].empty:
                     st.markdown("<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 5px;'>Post-Stay Discovered Issues (Via TrustYou)</p>", unsafe_allow_html=True)
                     drill_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)][['Opera_Room', 'Extracted_Dept', 'Score']]
@@ -492,7 +479,6 @@ else:
                     drill_fb.columns = ['Room', 'Logged Dept', 'Current Status']
                     st.dataframe(drill_fb, hide_index=True, use_container_width=True, height=120)
                 else: st.markdown("<p style='font-size: 0.85rem; color: #888;'>No live rooms actively mapped.</p>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Pipeline Execution Failure: {e}")
