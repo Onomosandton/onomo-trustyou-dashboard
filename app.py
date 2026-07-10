@@ -7,7 +7,9 @@ import requests
 import base64
 import os
 import json
+import re
 import xml.etree.ElementTree as ET
+from pypdf import PdfReader
 from datetime import datetime, timedelta
 
 # 1. Page Configuration
@@ -20,6 +22,8 @@ if 'ty_df' not in st.session_state:
     st.session_state.ty_df = pd.DataFrame()
 if 'opera_df' not in st.session_state:
     st.session_state.opera_df = pd.DataFrame()
+if 'financial_actuals' not in st.session_state:
+    st.session_state.financial_actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -71,12 +75,32 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
-    
-    .streamlit-expanderHeader { color: #333 !important; font-size: 0.95rem !important; font-weight: 800 !important; }
+    .streamlit-expanderHeader { font-weight: 800 !important; color: #333 !important; font-size: 1.05rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines
+# 4. Data Ingestion & Parsing Engines
+def parse_pdf_flash_report(pdf_file):
+    actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
+    try:
+        reader = PdfReader(pdf_file)
+        full_text = ""
+        for page in reader.pages:
+            text = page.extract_text()
+            if text: full_text += text + "\n"
+        
+        # Regular expressions to locate standard Opera Flash PDF line items
+        adr_match = re.search(r'(?:ADR|Average\s+Room\s+Rate|Avg\s+Rate).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
+        room_rev_match = re.search(r'(?:Room\s+Revenue|Total\s+Room\s+Rev).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
+        fb_rev_match = re.search(r'(?:F\s*&\s*B\s+Revenue|Food\s*(?:&\s*|and\s*)Beverage).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
+        
+        if adr_match: actuals["ADR"] = float(adr_match.group(1).replace(" ", "").replace(",", ""))
+        if room_rev_match: actuals["Room Revenue"] = float(room_rev_match.group(1).replace(" ", "").replace(",", ""))
+        if fb_rev_match: actuals["F&B Revenue"] = float(fb_rev_match.group(1).replace(" ", "").replace(",", ""))
+    except Exception:
+        pass
+    return actuals
+
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -162,13 +186,11 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
-# 6. Central Application Logic
+# 6. Welcome Landing / Data Configuration Logic
 if not st.session_state.active_report:
-    # --- WELCOME LANDING PAGE ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        
         tracker_state = "Online" if not fb_df.empty else "Offline"
         st.markdown(f"""
         <div style='margin-bottom: 25px;'>
@@ -193,24 +215,17 @@ if not st.session_state.active_report:
         with st.expander("View Active Backlog Details", expanded=False):
             if not fb_df.empty:
                 active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
-                if not active_df.empty:
-                    st.dataframe(active_df, hide_index=True, use_container_width=True)
-                else:
-                    st.success("[STATUS NORMAL] No open tickets currently backlogged.")
-            else:
-                st.info("System Offline: Awaiting live tracker data.")
+                if not active_df.empty: st.dataframe(active_df, hide_index=True, use_container_width=True)
+                else: st.success("[STATUS NORMAL] No open tickets currently backlogged.")
+            else: st.info("System Offline: Awaiting live tracker data.")
                 
         with st.expander(f"View Critical Room Alerts ({len(criticals)})", expanded=False):
             if not criticals.empty:
                 for rm, ct in criticals.items():
                     st.markdown(f"<p style='color:#8e2a2a; font-weight:600; font-size: 0.9rem; margin:0; padding: 5px 0;'>[ALERT] Room {rm}: {ct} unresolved complaints recorded.</p>", unsafe_allow_html=True)
-            else:
-                st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
+            else: st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
                 
         with st.expander("Target Configurations", expanded=False):
-            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
-            
-            # --- SECTION 1: ONLINE REVIEW SCORES ---
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
             t_c1, t_c2 = st.columns(2)
             new_targets = {}
@@ -222,30 +237,23 @@ if not st.session_state.active_report:
                 new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
             
             st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-            
-            # --- SECTION 2: FINANCIALS ---
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
             f_c1, f_c2, f_c3 = st.columns(3)
-            with f_c1:
-                new_targets["ADR"] = st.number_input("ADR (ZAR)", value=st.session_state.gm_targets.get("ADR", 1500), step=50)
-            with f_c2:
-                new_targets["Room Revenue"] = st.number_input("Room Revenue (ZAR)", value=st.session_state.gm_targets.get("Room Revenue", 500000), step=10000)
-            with f_c3:
-                new_targets["F&B Revenue"] = st.number_input("F&B Revenue (ZAR)", value=st.session_state.gm_targets.get("F&B Revenue", 150000), step=5000)
+            with f_c1: new_targets["ADR"] = st.number_input("ADR (ZAR)", value=st.session_state.gm_targets.get("ADR", 1500), step=50)
+            with f_c2: new_targets["Room Revenue"] = st.number_input("Room Revenue (ZAR)", value=st.session_state.gm_targets.get("Room Revenue", 500000), step=10000)
+            with f_c3: new_targets["F&B Revenue"] = st.number_input("F&B Revenue (ZAR)", value=st.session_state.gm_targets.get("F&B Revenue", 150000), step=5000)
             
-            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Save Targets", use_container_width=True):
                 st.session_state.gm_targets = new_targets
                 save_targets(new_targets)
                 st.success("System configurations updated.")
                 
-        with st.expander("Data Synchronization", expanded=False):
-            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Upload weekly reports to generate the Executive Summary.</p>", unsafe_allow_html=True)
+        with st.expander("Data Synchronization", expanded=True):
             col_csv, col_xml = st.columns(2)
-            with col_csv:
-                csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
-            with col_xml:
-                xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
+            with col_csv: csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
+            with col_xml: xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
+            
+            pdf_file = st.file_uploader("Upload Daily Flash Report (.pdf) [OPTIONAL]", type=["pdf"], key=f"pdf_up_{st.session_state.uploader_key}")
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Generate Analytics", use_container_width=True, type="primary"):
@@ -255,11 +263,9 @@ if not st.session_state.active_report:
                     parsed_ty['Published date'] = pd.to_datetime(parsed_ty['Published date'], errors='coerce').dt.tz_localize(None)
                     st.session_state.ty_df = parsed_ty
                     
-                    if xml_file is not None:
-                        st.session_state.opera_df = parse_opera_xml(xml_file)
-                    else:
-                        st.session_state.opera_df = pd.DataFrame()
-                        
+                    st.session_state.opera_df = parse_opera_xml(xml_file) if xml_file is not None else pd.DataFrame()
+                    st.session_state.financial_actuals = parse_pdf_flash_report(pdf_file) if pdf_file is not None else {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
+                    
                     st.session_state.active_report = True
                     st.rerun()
                 else:
@@ -267,28 +273,24 @@ if not st.session_state.active_report:
 
     with welcome_right:
         img_src = "data:image/jpeg;base64," + vibe_b64 if vibe_b64 else "https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-        image_html = f"""
-        <div style="box-shadow: 0 20px 50px rgba(0,0,0,0.15); border-radius: 24px; overflow: hidden; margin-top: 10px;">
-            <img src="{img_src}" style="width: 100%; display: block; object-fit: cover;">
-        </div>"""
-        st.markdown(image_html, unsafe_allow_html=True)
+        st.markdown(f'<div style="box-shadow: 0 20px 50px rgba(0,0,0,0.15); border-radius: 24px; overflow: hidden; margin-top: 10px;"><img src="{img_src}" style="width: 100%; display: block; object-fit: cover;"></div>', unsafe_allow_html=True)
 
 else:
     # --- ACTIVE ANALYTICS DASHBOARD ---
-    col_back, col_space = st.columns([1, 5])
-    with col_back:
-        if st.button("Close Report / Return to Hub", use_container_width=True):
-            st.session_state.active_report = False
-            st.session_state.ty_df = pd.DataFrame()
-            st.session_state.opera_df = pd.DataFrame()
-            st.session_state.uploader_key += 1
-            st.rerun()
+    if st.button("Close Report / Return to Hub", use_container_width=False):
+        st.session_state.active_report = False
+        st.session_state.ty_df = pd.DataFrame()
+        st.session_state.opera_df = pd.DataFrame()
+        st.session_state.financial_actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
+        st.session_state.uploader_key += 1
+        st.rerun()
             
     st.markdown("<hr style='margin: 10px 0px 20px 0px;'>", unsafe_allow_html=True)
     
     try:
         ty_df = st.session_state.ty_df
         opera_df = st.session_state.opera_df
+        fin_actuals = st.session_state.financial_actuals
         
         def mine_review_text_department(text):
             if pd.isna(text): return "General"
@@ -312,21 +314,17 @@ else:
             detected_dept = mine_review_text_department(row.get('Review Text', ''))
             author_name = str(row['Author name']).lower().strip()
             review_date = row['Published date']
-            
             if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
                 if detected_dept != "General": return ("Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)", 0.0)
                 return ("General Feedback", 0.0)
-            
             time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
             for _, fb_row in live_db[time_window].iterrows():
                 if author_name in str(fb_row['guestName']).lower():
                     actual_cost = float(fb_row.get('cost', 0.0))
                     if fb_row['type'] == 'compliment': return ("Praise Confirmed", 0.0)
                     return ("Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation", actual_cost)
-            
             return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
 
-        # Apply Triangulation
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
         synergy_results = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
         ty_df['Synergy_Metric'] = [res[0] for res in synergy_results]
@@ -338,7 +336,6 @@ else:
         actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
         catch_rate = ((total_reviews - actual_blindspots) / total_reviews) * 100 if total_reviews > 0 else 0
 
-        # === THE BIRDSEYE TABS ===
         tab1, tab2, tab3 = st.tabs(["Executive Summary", "Service Recovery & ROI", "Floor Operations & Heatmap"])
 
         with tab1:
@@ -346,9 +343,10 @@ else:
             col1, col2, col3, col4 = st.columns(4, gap="medium")
             with col1: st.metric("Reviews Correlated", f"{total_reviews}")
             with col2: st.metric("Overall Score", f"{avg_score:.1f}%")
-            with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", "Missed opportunities", delta_color="inverse")
-            with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%", "Synergy baseline targets")
+            with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
+            with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
             
+            # Reputation Metrics Row
             st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
@@ -358,28 +356,57 @@ else:
                 plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
                 actual = plat_data['Score'].mean() if not plat_data.empty else 0
                 achieved, missing = min(actual, target), max(0, target - actual)
-                
                 fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
-                fig.update_layout(showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)])
+                fig.update_layout(showlegend=False, height=140, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=14, showarrow=False)])
                 with pie_cols[idx]:
-                    st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem;'>{platform}</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # --- NEW FINANCIAL TARGET VS ACTUAL VARIANCE SECTION ---
+            st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
+            
+            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
+            f_cols = st.columns(3)
+            
+            for idx, metric in enumerate(f_metrics):
+                t_val = st.session_state.gm_targets.get(metric, 1.0)
+                a_val = fin_actuals.get(metric, 0.0)
+                
+                # Protect against zero divisions if PDF parsing is missing/un-uploaded
+                pct_achieved = (a_val / t_val) * 100 if t_val > 0 else 0.0
+                variance = a_val - t_val
+                
+                # Format variables cleanly based on category
+                prefix = "R "
+                v_color = "#8e2a2a" if variance < 0 else "#4A5D54"
+                v_text = f"Deficit: {prefix}{abs(variance):,.2f}" if variance < 0 else f"Surplus: {prefix}{variance:,.2f}"
+                if metric == "ADR": v_text = f"Variance: {prefix}{variance:,.2f}"
+                
+                with f_cols[idx]:
+                    st.markdown(f"""
+                    <div style='background: #F8F9FA; padding: 15px; border-radius: 8px; border-left: 4px solid {v_color};'>
+                        <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
+                        <div style='font-size: 1.5rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
+                        <div style='font-size: 0.85rem; color: {v_color}; font-weight: 700; margin-top: 5px;'>{v_text} ({pct_achieved:.1f}% Achieved)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
             saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
             slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
-            
             actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
             confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
             save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
             
             c1, c2, c3, c4 = st.columns(4, gap="medium")
-            with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
-            with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}", "Live tracker resolution spend")
-            with c3: st.metric("Confirmed Praises", f"{confirmed_praises}", "In-house praise matching positive review")
-            with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", "Slipped through to post-stay", delta_color="inverse")
+            with c1: st.metric("The Save Rate", f"{save_rate:.1f}%")
+            with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}")
+            with c3: st.metric("Confirmed Praises", f"{confirmed_praises}")
+            with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", delta_color="inverse")
             
             if not slipped_cases.empty:
                 st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
@@ -389,35 +416,26 @@ else:
 
         with tab3:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
-            
             heatmap_data = []
             if not fb_df.empty and 'guestName' in fb_df.columns:
                 fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
                 for _, row in fb_df.dropna(subset=['Room']).iterrows():
                     heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
-                    
             if not ty_df.empty:
                 mapped_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)]
                 for _, row in mapped_ty.iterrows():
                     heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2})
-                    
             heat_df = pd.DataFrame(heatmap_data)
             
             col_heat, col_grid = st.columns([1.2, 1], gap="large")
-            
             with col_heat:
                 st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
                 st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Unified Floor Heatmap</h5>", unsafe_allow_html=True)
                 st.info("Interaction Guide: Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
-                
                 if not heat_df.empty:
                     heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
                     floor_vol = heat_df.groupby(['Floor', 'Room', 'Source'])['Weight'].sum().reset_index()
-                    
-                    fig_heat = px.treemap(
-                        floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source',
-                        color_discrete_map={"Live Tracker": "#cf6231", "TrustYou (Negative)": "#8e2a2a"}
-                    )
+                    fig_heat = px.treemap(floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source', color_discrete_map={"Live Tracker": "#cf6231", "TrustYou (Negative)": "#8e2a2a"})
                     fig_heat.update_layout(margin=dict(t=25, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)", height=350)
                     st.plotly_chart(fig_heat, use_container_width=True)
                 else:
@@ -428,22 +446,19 @@ else:
             with col_grid:
                 st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
                 st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Room-Level Incident Log Interface</h5>", unsafe_allow_html=True)
-                
                 if not ty_df[ty_df['Opera_Room'].notna()].empty:
                     st.markdown("<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 5px;'>Post-Stay Discovered Issues (Via TrustYou)</p>", unsafe_allow_html=True)
                     drill_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)][['Opera_Room', 'Extracted_Dept', 'Score']]
                     drill_ty.columns = ['Room', 'Complaint Dept', 'Score']
-                    st.dataframe(drill_ty, hide_index=True, use_container_width=True, height=150)
-                else:
-                    st.markdown("<p style='font-size: 0.85rem; color: #888;'>No mapped post-stay issues.</p>", unsafe_allow_html=True)
+                    st.dataframe(drill_ty, hide_index=True, use_container_width=True, height=120)
+                else: st.markdown("<p style='font-size: 0.85rem; color: #888;'>No mapped post-stay issues.</p>", unsafe_allow_html=True)
                     
                 st.markdown("<p style='font-size: 0.85rem; color: #cf6231; font-weight: 700; margin-bottom: 5px; margin-top: 15px;'>Live In-House Logged Issues (Via Tracker)</p>", unsafe_allow_html=True)
                 if not fb_df.empty and 'Room' in fb_df.columns:
                     drill_fb = fb_df.dropna(subset=['Room'])[['Room', 'department', 'status']]
                     drill_fb.columns = ['Room', 'Logged Dept', 'Current Status']
-                    st.dataframe(drill_fb, hide_index=True, use_container_width=True, height=150)
-                else:
-                    st.markdown("<p style='font-size: 0.85rem; color: #888;'>No live rooms actively mapped.</p>", unsafe_allow_html=True)
+                    st.dataframe(drill_fb, hide_index=True, use_container_width=True, height=120)
+                else: st.markdown("<p style='font-size: 0.85rem; color: #888;'>No live rooms actively mapped.</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
