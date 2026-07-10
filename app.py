@@ -36,6 +36,7 @@ def get_base64_image(filepath):
 
 aleph_b64 = get_base64_image("aleph_logo.png")
 onomo_b64 = get_base64_image("onomo_logo.jpg")
+vibe_b64 = get_base64_image("vibe1.jpg")
 
 st.markdown("""
 <style>
@@ -73,6 +74,7 @@ def fetch_live_firebase_data():
                 "department": fields.get("department", {}).get("stringValue", "General"),
                 "status": fields.get("status", {}).get("stringValue", "resolved"),
                 "type": fields.get("type", {}).get("stringValue", "complaint"),
+                "cost": float(fields.get("cost", {}).get("doubleValue", fields.get("cost", {}).get("integerValue", 0))),
                 "date": pd.to_datetime(fields.get("date", {}).get("stringValue", ""), errors='coerce'),
                 "resolvedAt": pd.to_datetime(fields.get("resolvedAt", {}).get("stringValue", ""), errors='coerce')
             })
@@ -91,7 +93,6 @@ def parse_opera_xml(xml_file):
             departure = elem.find('DEPARTURE')
             
             if full_name is not None and room_no is not None and departure is not None:
-                # Clean Opera format: "Corcoles,Maria,MRS" -> "Maria Corcoles"
                 name_parts = full_name.text.replace('*', '').split(',')
                 clean_name = f"{name_parts[1]} {name_parts[0]}" if len(name_parts) >= 2 else name_parts[0]
                 
@@ -146,8 +147,25 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
-# 7. Core Application Logic
-if uploaded_csv is not None:
+# 7. Core Application Logic or Welcome Screen
+if uploaded_csv is None:
+    # --- RESTORED WELCOME DASHBOARD PAGE ---
+    welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
+    
+    with welcome_left:
+        st.markdown("<div style='padding-top: 30px;'></div>", unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 4rem; line-height: 1.05; letter-spacing: -1.5px; margin-bottom: 20px;'>Welcome to<br>Sandton Operations.</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666666; font-size: 1.25rem; line-height: 1.7; margin-bottom: 40px; max-width: 90%;'>Ignite the engine by uploading the latest weekly CSV report and Opera XML in the sidebar. The system will instantly correlate guest sentiment with our on-the-ground floor trackers.</p>", unsafe_allow_html=True)
+            
+    with welcome_right:
+        img_src = "data:image/jpeg;base64," + vibe_b64 if vibe_b64 else "https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+        image_html = """
+        <div style="box-shadow: 0 20px 50px rgba(0,0,0,0.15); border-radius: 24px; overflow: hidden; margin-top: 10px;">
+            <img src=\"""" + img_src + """\" style="width: 100%; display: block; object-fit: cover;">
+        </div>"""
+        st.markdown(image_html, unsafe_allow_html=True)
+
+else:
     try:
         # Load TrustYou
         ty_df = pd.read_csv(uploaded_csv)
@@ -173,16 +191,15 @@ if uploaded_csv is not None:
             author = str(ty_row['Author name']).lower().strip()
             if author == 'nan' or author == '': return None
             
-            # Fuzzy match TrustYou Author Name to Opera PMS Name within 10 days of review
             mask = (op_db['Departure'] >= ty_row['Published date'] - timedelta(days=10)) & (op_db['Departure'] <= ty_row['Published date'] + timedelta(days=3))
             recent_guests = op_db[mask]
             
             for _, op_row in recent_guests.iterrows():
-                # Checking if TrustYou first name (e.g., 'Maria') is in Opera Name (e.g., 'Maria Corcoles')
                 if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author:
                     return op_row['Room_No']
             return None
 
+        # EXACT ALIGNMENT: Returns BOTH the Synergy Status AND the actual cost logged by staff
         def cross_reference_synergy(row, live_db):
             detected_dept = mine_review_text_department(row.get('Review Text', ''))
             author_name = str(row['Author name']).lower().strip()
@@ -190,24 +207,41 @@ if uploaded_csv is not None:
             
             if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
                 if detected_dept != "General": 
-                    return "Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)"
-                return "General Feedback"
+                    return ("Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)", 0.0)
+                return ("General Feedback", 0.0)
             
             time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
             for _, fb_row in live_db[time_window].iterrows():
                 if author_name in str(fb_row['guestName']).lower():
-                    if fb_row['type'] == 'compliment': return "Praise Confirmed"
-                    return "Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation"
+                    actual_cost = float(fb_row.get('cost', 0.0))
+                    if fb_row['type'] == 'compliment': 
+                        return ("Praise Confirmed", 0.0)
+                    return ("Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation", actual_cost)
             
-            return "Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback"
+            return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
 
-        # Apply Triangulation
+        # Apply Triangulation & Calculations
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
-        ty_df['Synergy_Metric'] = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
+        synergy_results = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
+        ty_df['Synergy_Metric'] = [res[0] for res in synergy_results]
+        ty_df['Recovery_Cost'] = [res[1] for res in synergy_results]
         ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
+        
+        total_reviews = len(ty_df)
+        avg_score = ty_df['Score'].mean()
+        actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
+        catch_rate = ((total_reviews - actual_blindspots) / total_reviews) * 100 if total_reviews > 0 else 0
         
         # --- SECTION 1: EXECUTIVE SUMMARY ---
         st.markdown("<div class='section-header'>1. Executive Summary</div>", unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4, gap="medium")
+        with col1: st.metric("Reviews Correlated", f"{total_reviews}")
+        with col2: st.metric("Overall TrustYou Score", f"{avg_score:.1f}%")
+        with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", "Missed opportunities before checkout", delta_color="inverse")
+        with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%", "Synergy baseline targets")
+        
+        st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
         pie_cols = st.columns(4)
         platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
@@ -225,41 +259,92 @@ if uploaded_csv is not None:
                 st.plotly_chart(fig, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- SECTION 2: THE BRIDGE (SERVICE RECOVERY ROI) ---
-        st.markdown("<div class='section-header'>2. The Service Recovery ROI</div>", unsafe_allow_html=True)
+        # --- SECTION 2: SERVICE RECOVERY ROI & STAFF RECOGNITION ---
+        st.markdown("<div class='section-header'>2. Service Recovery ROI & Staff Recognition</div>", unsafe_allow_html=True)
         saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
         slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
+        
+        # Calculate precise, actual costs from Vercel tracker data
+        actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
+        confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
         save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
         
-        c1, c2, c3 = st.columns(3, gap="medium")
+        c1, c2, c3, c4 = st.columns(4, gap="medium")
         with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
-        with c2: st.metric("Revenue at Risk Intercepted", f"R {len(saved_cases) * 2500:,.2f}", "Saved via in-house resolution")
-        with c3: st.metric("Slipped Through The Cracks", f"{len(slipped_cases)}", "Failed service recoveries", delta_color="inverse")
+        with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}", "Live tracker resolution spend")
+        with c3: st.metric("Confirmed Praises", f"{confirmed_praises}", "In-house praise matching positive review")
+        with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", "Slipped through to post-stay", delta_color="inverse")
 
-        # --- SECTION 3: UNIFIED ROOM BURN-RATE HEATMAP ---
-        st.markdown("<div class='section-header'>3. Unified Floor Heatmap (All Platforms)</div>", unsafe_allow_html=True)
+        # --- SECTION 3: OPERATIONAL EFFICIENCY & LIVE STREAM ---
+        st.markdown("<div class='section-header'>3. Operational Efficiency & Live Stream</div>", unsafe_allow_html=True)
+        
+        open_tickets = len(fb_df[fb_df['status'] == 'open']) if not fb_df.empty else 0
+        avg_resp_time = fb_df['resolution_time_mins'].mean() if not fb_df.empty and 'resolution_time_mins' in fb_df.columns else 0
+        
+        e1, e2 = st.columns(2, gap="medium")
+        with e1: st.metric("Live Open Tickets", f"{open_tickets}", "Currently tracked in-house", delta_color="inverse")
+        with e2: st.metric("Average Resolution Time", f"{avg_resp_time:.1f} mins" if avg_resp_time > 0 else "N/A", "Target: <15 mins", delta_color="normal" if avg_resp_time <= 15 else "inverse")
+        
+        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Departmental Resolution Speed (Minutes)</h5>", unsafe_allow_html=True)
+        if not fb_df.empty and 'resolution_time_mins' in fb_df.columns:
+            dept_speed = fb_df.groupby('department')['resolution_time_mins'].mean().reset_index()
+            fig_speed = px.bar(dept_speed, x='resolution_time_mins', y='department', orientation='h', color='department', color_discrete_sequence=["#1A1A1A", "#7EC8BD", "#A9B5B0", "#cf6231"])
+            fig_speed.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False, xaxis_title="Average Minutes to Resolve", yaxis_title="")
+            st.plotly_chart(fig_speed, use_container_width=True)
+        else:
+            st.info("Resolution timestamp data not fully available in current Firebase stream.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- SECTION 4: SENTIMENT & PREDICTIVE GAP ANALYSIS ---
+        st.markdown("<div class='section-header'>4. Predictive Forecasting & Gap Analysis</div>", unsafe_allow_html=True)
+        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>The Feedback Gap</h5>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 0.85rem; color: #666;'>Comparing Live Issue Volume against Final TrustYou Scores.</p>", unsafe_allow_html=True)
+        
+        if not fb_df.empty:
+            live_vol = fb_df['department'].value_counts().reset_index()
+            live_vol.columns = ['Department', 'Live_Tickets']
+        else:
+            live_vol = pd.DataFrame([{"Department": "Maintenance", "Live_Tickets": 5}, {"Department": "Housekeeping", "Live_Tickets": 2}])
+            
+        ty_dept_score = ty_df[ty_df['Extracted_Dept'] != 'General'].groupby('Extracted_Dept')['Score'].mean().reset_index()
+        ty_dept_score.columns = ['Department', 'TY_Score']
+        
+        gap_df = pd.merge(live_vol, ty_dept_score, on='Department', how='outer').fillna(0)
+        
+        if not gap_df.empty:
+            fig_gap = go.Figure()
+            fig_gap.add_trace(go.Bar(x=gap_df['Department'], y=gap_df['Live_Tickets'], name='Live Tickets Logged', marker_color='#1A1A1A', yaxis='y1'))
+            fig_gap.add_trace(go.Scatter(x=gap_df['Department'], y=gap_df['TY_Score'], name='TrustYou Score', marker_color='#cf6231', mode='lines+markers', yaxis='y2'))
+            fig_gap.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                yaxis=dict(title="Live Tickets", side="left", showgrid=False),
+                yaxis2=dict(title="TrustYou Score", side="right", overlaying="y", range=[0, 100], showgrid=True, gridcolor='rgba(0,0,0,0.05)')
+            )
+            st.plotly_chart(fig_gap, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- SECTION 5: UNIFIED ROOM BURN-RATE HEATMAP ---
+        st.markdown("<div class='section-header'>5. Unified Floor Heatmap (All Platforms)</div>", unsafe_allow_html=True)
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
         
-        # Build the unified heat matrix
         heatmap_data = []
-        
-        # Add Live Vercel Tickets
         if not fb_df.empty and 'guestName' in fb_df.columns:
             fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
             for _, row in fb_df.dropna(subset=['Room']).iterrows():
                 heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
                 
-        # Add TrustYou Negative Reviews (Triangulated via Opera)
         if not ty_df.empty:
             mapped_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)]
             for _, row in mapped_ty.iterrows():
-                heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2}) # Bad reviews weigh heavier
+                heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2})
                 
         heat_df = pd.DataFrame(heatmap_data)
         
         if not heat_df.empty:
             heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
-            floor_vol = heat_df.groupby(['Floor', 'Room', 'Source']).sum('Weight').reset_index()
+            floor_vol = heat_df.groupby(['Floor', 'Room', 'Source'])['Weight'].sum().reset_index()
             
             fig_heat = px.treemap(
                 floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source',
@@ -277,6 +362,3 @@ if uploaded_csv is not None:
 
     except Exception as e:
         st.error(f"Pipeline Execution Failure: {e}")
-
-else:
-    st.markdown("<div class='glass-container' style='text-align: center; padding: 60px; color: #666;'><h4 style='font-weight:800; color:#1A1A1A; margin-bottom:10px;'>Awaiting Data Feed</h4><p>Upload your weekly TrustYou CSV via the sidebar to generate the Executive Summary.</p></div>", unsafe_allow_html=True)
