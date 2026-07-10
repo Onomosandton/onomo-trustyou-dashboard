@@ -95,14 +95,16 @@ def parse_pdf_flash_report(pdf_file):
         lines = [line.strip() for line in full_text.split("\n") if line.strip()]
         
         for line in lines:
-            # Clean string structures by removing inner formatting blocks
-            segments = [seg.strip().replace('"', '') for seg in line.split('","')]
-            if not segments:
+            # FIX: Clears all quotes up front to prevent text wrappers from checking alignment
+            clean_line = line.replace('"', '').strip()
+            segments = [seg.strip() for seg in clean_line.split(',')]
+            
+            if not segments or len(segments) < 2:
                 continue
                 
             label = segments[0].strip().lower()
             
-            # Exact lookup matching on clean array indexes for current year MTD actuals
+            # Exact mapping of column strings to target MTD index positions
             if label == "adr" and len(segments) >= 3:
                 try:
                     actuals["ADR"] = float(segments[2].replace(",", "").strip())
@@ -113,7 +115,7 @@ def parse_pdf_flash_report(pdf_file):
                     actuals["Room Revenue"] = float(segments[2].replace(",", "").strip())
                 except ValueError:
                     pass
-            elif (label == "food and beverage revenue" or label == "food and beverage revenue") and len(segments) >= 3:
+            elif label == "food and beverage revenue" and len(segments) >= 3:
                 try:
                     actuals["F&B Revenue"] = float(segments[2].replace(",", "").strip())
                 except ValueError:
