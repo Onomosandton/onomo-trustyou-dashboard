@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction & Advanced Table Parser
+# 4. Data Extraction & Bulletproof Regex Table Parser
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -92,34 +92,28 @@ def parse_pdf_flash_report(pdf_file):
             t = page.extract_text()
             if t: full_text += t + "\n"
             
+        # Re-join lines that might have been broken mid-string by PDF formatting
+        full_text = full_text.replace('\n","', '","')
         lines = [line.strip() for line in full_text.split("\n") if line.strip()]
         
         for line in lines:
-            # FIX: Clears all quotes up front to prevent text wrappers from checking alignment
             clean_line = line.replace('"', '').strip()
-            segments = [seg.strip() for seg in clean_line.split(',')]
+            lower_line = clean_line.lower()
             
-            if not segments or len(segments) < 2:
-                continue
-                
-            label = segments[0].strip().lower()
+            # Robust extraction of financial figures with embedded commas
+            numbers = re.findall(r'\d{1,3}(?:,\d{3})*(?:\.\d+)?', clean_line)
+            valid_numbers = [n for n in numbers if n != ""]
             
-            # Exact mapping of column strings to target MTD index positions
-            if label == "adr" and len(segments) >= 3:
-                try:
-                    actuals["ADR"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
-            elif label == "room revenue" and len(segments) >= 3:
-                try:
-                    actuals["Room Revenue"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
-            elif label == "food and beverage revenue" and len(segments) >= 3:
-                try:
-                    actuals["F&B Revenue"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
+            # Match strict labels and pull Index 1 (MTD Column)
+            if lower_line.startswith("adr") and not lower_line.startswith("adr minus"):
+                if len(valid_numbers) >= 2:
+                    actuals["ADR"] = float(valid_numbers[1].replace(",", ""))
+            elif lower_line.startswith("room revenue"):
+                if len(valid_numbers) >= 2:
+                    actuals["Room Revenue"] = float(valid_numbers[1].replace(",", ""))
+            elif lower_line.startswith("food and beverage revenue") or lower_line.startswith("f&b revenue"):
+                if len(valid_numbers) >= 2:
+                    actuals["F&B Revenue"] = float(valid_numbers[1].replace(",", ""))
     except Exception:
         pass
     return actuals
