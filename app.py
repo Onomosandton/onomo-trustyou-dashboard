@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction & Bulletproof Regex Table Parser
+# 4. Data Extraction & Completely Reworked Regular Expression PDF Parser
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -92,28 +92,29 @@ def parse_pdf_flash_report(pdf_file):
             t = page.extract_text()
             if t: full_text += t + " "
             
-        # FIX: Flatten the PDF by completely stripping newlines and quotes to form a clean CSV string
-        flat_text = full_text.replace('\n', '').replace('\r', '').replace('"', '')
+        # Flatten the text block completely to prevent line-break splitting
+        flat_text = full_text.replace('\n', ' ').replace('\r', ' ')
         
-        def get_mtd(labels):
-            for label in labels:
-                # Target exact strings safely (e.g. ,Room Revenue,DayVal,MTDVal)
-                pattern = rf'(?:^|,)\s*{label}\s*,\s*(-?[\d\.,]+)\s*,\s*(-?[\d\.,]+)'
+        # Define all possible labels from standard flash exports
+        metrics = {
+            "ADR": ["ADR", "Average Room Rate"],
+            "Room Revenue": ["Room Revenue", "Total Room Rev", "Rooms Revenue"],
+            "F&B Revenue": ["Food And Beverage Revenue", "Food & Beverage Revenue", "F&B Revenue", "F & B Revenue"]
+        }
+        
+        for key, aliases in metrics.items():
+            for alias in aliases:
+                # The engine strictly targets the exact label, bypasses ONLY punctuation/quotes, captures the 1st number, then the 2nd number (MTD).
+                pattern = rf'{re.escape(alias)}[^a-zA-Z\d]+(\d[0-9,\.]*)[^a-zA-Z\d]+(\d[0-9,\.]*)'
                 match = re.search(pattern, flat_text, re.IGNORECASE)
                 if match:
-                    # Group 2 represents the Month To Date figure
-                    return float(match.group(2).replace(",", ""))
-            return None
-            
-        adr = get_mtd(["ADR", "Average Room Rate"])
-        if adr is not None: actuals["ADR"] = adr
-        
-        rr = get_mtd(["Room Revenue", "Total Room Rev"])
-        if rr is not None: actuals["Room Revenue"] = rr
-        
-        fb = get_mtd(["Food And Beverage Revenue", "F&B Revenue", "Food & Beverage Revenue"])
-        if fb is not None: actuals["F&B Revenue"] = fb
-
+                    try:
+                        # Group 2 isolates the MTD figure. Strips internal commas safely.
+                        val = float(match.group(2).replace(",", ""))
+                        actuals[key] = val
+                        break
+                    except ValueError:
+                        pass
     except Exception:
         pass
     return actuals
@@ -378,7 +379,6 @@ else:
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            # FIX: Empty HTML wrapper removed to ensure seamless background
             st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 20px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
@@ -393,7 +393,6 @@ else:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
 
-            # FIX: Empty HTML wrapper removed to ensure seamless background
             st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 40px; margin-bottom: 20px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
             f_cols = st.columns(3)
             f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
@@ -411,7 +410,6 @@ else:
                 if metric == "ADR": v_text = f"Variance: {prefix}{variance:,.2f}"
                 
                 with f_cols[idx]:
-                    # The native HTML box stays because it natively supports the content block inside
                     st.markdown(f"""
                     <div style='background: #FFFFFF; padding: 25px; border-radius: 16px; border-top: 4px solid {v_color}; box-shadow: 0 10px 30px rgba(0,0,0,0.02);'>
                         <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
