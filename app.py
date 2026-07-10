@@ -13,7 +13,10 @@ from datetime import datetime, timedelta
 # 1. Page Configuration
 st.set_page_config(page_title="Insights Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. Local Storage for GM Targets
+# 2. State Management for Resetting & Targets
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
+
 TARGETS_FILE = "gm_targets.json"
 
 def load_targets():
@@ -47,13 +50,17 @@ st.markdown("""
     h1, h2, h3, h4, h5, h6, p, span, div { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
     
     div[data-testid="stFileUploader"] section { background-color: #FFFFFF !important; border: 2px dashed #7EC8BD !important; border-radius: 12px !important; padding: 15px !important; }
-    div[data-testid="metric-container"] { background: #FFFFFF !important; padding: 20px; border-radius: 12px; border-top: 4px solid #7EC8BD; box-shadow: 0 10px 30px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.01); }
+    div[data-testid="metric-container"] { background: #FFFFFF !important; padding: 15px; border-radius: 12px; border-top: 4px solid #7EC8BD; box-shadow: 0 10px 30px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.01); }
     div[data-testid="metric-container"] label { color: #888888 !important; font-weight: 700 !important; font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 1px; }
-    div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2.2rem !important; }
+    div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2rem !important; }
     .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02) !important; margin-bottom: 25px; }
-    .section-header { font-size: 1.4rem; font-weight: 900; color: #1A1A1A; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #F0F0F0; padding-bottom: 10px;}
     .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
     .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
+    
+    /* Style Streamlit Tabs for a cleaner dashboard feel */
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
+    .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -108,7 +115,6 @@ def parse_opera_xml(xml_file):
         st.error(f"XML Parsing Error: {e}")
         return pd.DataFrame()
 
-# Fetch Live Firebase Feed
 fb_df = fetch_live_firebase_data()
 open_tickets = 0
 alerts_html = ""
@@ -121,7 +127,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
     
     open_tickets = len(fb_df[fb_df['status'] == 'open'])
     
-    # Calculate Live Critical Alerts
     if 'guestName' in fb_df.columns:
         rooms = fb_df['guestName'].str.extract(r'(\d{3,4})')[0].dropna()
         if not rooms.empty:
@@ -149,33 +154,29 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
-# 6. Persistent Top Call-to-Action (Centralized Upload & Targets)
-with st.expander("⚙️ Set Executive KPI Targets (Year-End Goals)", expanded=False):
-    st.markdown("<p style='color: #666; font-size: 0.9rem;'>Adjust your baseline targets to actively monitor performance gaps on the dashboard.</p>", unsafe_allow_html=True)
-    t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1, 1, 1, 1, 0.5])
-    new_targets = {}
-    with t_c1: new_targets["TrustYou Survey"] = st.slider("TrustYou Target", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
-    with t_c2: new_targets["booking.com"] = st.slider("Booking.com Target", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
-    with t_c3: new_targets["google.com"] = st.slider("Google Target", 50, 100, st.session_state.gm_targets.get("google.com", 85))
-    with t_c4: new_targets["tripadvisor.com"] = st.slider("TripAdvisor Target", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
-    with t_c5:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Lock Targets", use_container_width=True):
-            st.session_state.gm_targets = new_targets
-            save_targets(new_targets)
+# 6. Welcome Landing Interface (Only shows if no CSV uploaded)
+uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}", help="Mandatory: Core sentiment scores.")
 
-st.markdown("<h4 style='font-weight:900; margin-top: 10px; color: #1A1A1A;'>📥 Data Synchronization Drop-Zone</h4>", unsafe_allow_html=True)
-col_csv, col_xml = st.columns(2, gap="medium")
-with col_csv:
-    uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"], help="Mandatory: Core sentiment scores.")
-with col_xml:
-    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], help="Optional: Unlocks Physical Floor Heatmap triangulations.")
-
-st.markdown("---")
-
-# 7. Core Application Logic or Welcome Screen
 if uploaded_csv is None:
-    # --- RESTORED & ENHANCED WELCOME DASHBOARD PAGE ---
+    
+    with st.expander("⚙️ Set Executive KPI Targets (Year-End Goals)", expanded=False):
+        st.markdown("<p style='color: #666; font-size: 0.9rem;'>Adjust your baseline targets to actively monitor performance gaps.</p>", unsafe_allow_html=True)
+        t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1, 1, 1, 1, 0.5])
+        new_targets = {}
+        with t_c1: new_targets["TrustYou Survey"] = st.slider("TrustYou Target", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
+        with t_c2: new_targets["booking.com"] = st.slider("Booking.com Target", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
+        with t_c3: new_targets["google.com"] = st.slider("Google Target", 50, 100, st.session_state.gm_targets.get("google.com", 85))
+        with t_c4: new_targets["tripadvisor.com"] = st.slider("TripAdvisor Target", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
+        with t_c5:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Lock Targets", use_container_width=True):
+                st.session_state.gm_targets = new_targets
+                save_targets(new_targets)
+                st.toast("✅ Targets successfully locked!", icon="🎯")
+                
+    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", help="Optional: Unlocks Physical Floor Heatmap triangulations.")
+    
+    st.markdown("---")
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
@@ -183,7 +184,6 @@ if uploaded_csv is None:
         st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Predictive<br>Operations Hub.</h1>", unsafe_allow_html=True)
         st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores.</p>", unsafe_allow_html=True)
         
-        # High-Level Live Snapshot Grid (COO Suggestion)
         tracker_state = "🟢 Online" if not fb_df.empty else "🔴 Offline"
         st.markdown(f"""
         <div class='glass-container'>
@@ -214,7 +214,19 @@ if uploaded_csv is None:
         st.markdown(image_html, unsafe_allow_html=True)
 
 else:
-    # --- ACTIVE DASHBOARD STATE ---
+    # --- ACTIVE ANALYTICS DASHBOARD (BIRDSEYE TABS) ---
+    st.markdown("<hr style='margin: 0px 0px 20px 0px;'>", unsafe_allow_html=True)
+    
+    # 🔙 Back Button Logic
+    col_back, col_space = st.columns([1, 5])
+    with col_back:
+        if st.button("🔙 Return to Hub", use_container_width=True):
+            st.session_state.uploader_key += 1
+            st.rerun()
+
+    # Note: We must re-declare uploaded_xml here to catch it if uploaded alongside CSV
+    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", label_visibility="collapsed")
+    
     try:
         ty_df = pd.read_csv(uploaded_csv)
         ty_df['Score'] = pd.to_numeric(ty_df['Score'], errors='coerce')
@@ -237,13 +249,9 @@ else:
             if op_db.empty: return None
             author = str(ty_row['Author name']).lower().strip()
             if author == 'nan' or author == '': return None
-            
             mask = (op_db['Departure'] >= ty_row['Published date'] - timedelta(days=10)) & (op_db['Departure'] <= ty_row['Published date'] + timedelta(days=3))
-            recent_guests = op_db[mask]
-            
-            for _, op_row in recent_guests.iterrows():
-                if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author:
-                    return op_row['Room_No']
+            for _, op_row in op_db[mask].iterrows():
+                if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author: return op_row['Room_No']
             return None
 
         def cross_reference_synergy(row, live_db):
@@ -252,21 +260,19 @@ else:
             review_date = row['Published date']
             
             if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
-                if detected_dept != "General": 
-                    return ("Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)", 0.0)
+                if detected_dept != "General": return ("Resolved In-House" if row['Score'] >= 80 else "Slipped Through (Blindspot)", 0.0)
                 return ("General Feedback", 0.0)
             
             time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
             for _, fb_row in live_db[time_window].iterrows():
                 if author_name in str(fb_row['guestName']).lower():
                     actual_cost = float(fb_row.get('cost', 0.0))
-                    if fb_row['type'] == 'compliment': 
-                        return ("Praise Confirmed", 0.0)
+                    if fb_row['type'] == 'compliment': return ("Praise Confirmed", 0.0)
                     return ("Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation", actual_cost)
             
             return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
 
-        # Apply Triangulation & Calculations
+        # Apply Triangulation
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
         synergy_results = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
         ty_df['Synergy_Metric'] = [res[0] for res in synergy_results]
@@ -277,132 +283,114 @@ else:
         avg_score = ty_df['Score'].mean()
         actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
         catch_rate = ((total_reviews - actual_blindspots) / total_reviews) * 100 if total_reviews > 0 else 0
-        
-        # --- SECTION 1: EXECUTIVE SUMMARY ---
-        st.markdown("<div class='section-header'>1. Executive Summary</div>", unsafe_allow_html=True)
-        
-        col1, col2, col3, col4 = st.columns(4, gap="medium")
-        with col1: st.metric("Reviews Correlated", f"{total_reviews}")
-        with col2: st.metric("Overall TrustYou Score", f"{avg_score:.1f}%")
-        with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", "Missed opportunities before checkout", delta_color="inverse")
-        with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%", "Synergy baseline targets")
-        
-        st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        pie_cols = st.columns(4)
-        platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
-        
-        for idx, platform in enumerate(platforms):
-            target = st.session_state.gm_targets.get(platform, 85)
-            plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
-            actual = plat_data['Score'].mean() if not plat_data.empty else 0
+
+        # === THE BIRDSEYE TABS ===
+        tab1, tab2, tab3 = st.tabs(["📊 Executive Summary", "💰 Service Recovery & ROI", "🏨 Floor Operations & Heatmap"])
+
+        with tab1:
+            st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4, gap="medium")
+            with col1: st.metric("Reviews Correlated", f"{total_reviews}")
+            with col2: st.metric("Overall Score", f"{avg_score:.1f}%")
+            with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", "Missed opportunities", delta_color="inverse")
+            with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%", "Synergy baseline targets")
             
-            achieved, missing = min(actual, target), max(0, target - actual)
-            fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap to Target'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
-            fig.update_layout(showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)])
-            with pie_cols[idx]:
-                st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem;'>{platform}</p>", unsafe_allow_html=True)
-                st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 2: SERVICE RECOVERY ROI & STAFF RECOGNITION ---
-        st.markdown("<div class='section-header'>2. Service Recovery ROI & Staff Recognition</div>", unsafe_allow_html=True)
-        saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
-        slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
-        
-        actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
-        confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
-        save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
-        
-        c1, c2, c3, c4 = st.columns(4, gap="medium")
-        with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
-        with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}", "Live tracker resolution spend")
-        with c3: st.metric("Confirmed Praises", f"{confirmed_praises}", "In-house praise matching positive review")
-        with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", "Slipped through to post-stay", delta_color="inverse")
-
-        # --- SECTION 3: OPERATIONAL EFFICIENCY & LIVE STREAM ---
-        st.markdown("<div class='section-header'>3. Operational Efficiency & Live Stream</div>", unsafe_allow_html=True)
-        
-        avg_resp_time = fb_df['resolution_time_mins'].mean() if not fb_df.empty and 'resolution_time_mins' in fb_df.columns else 0
-        
-        e1, e2 = st.columns(2, gap="medium")
-        with e1: st.metric("Live Open Tickets", f"{open_tickets}", "Currently tracked in-house", delta_color="inverse")
-        with e2: st.metric("Average Resolution Time", f"{avg_resp_time:.1f} mins" if avg_resp_time > 0 else "N/A", "Target: <15 mins", delta_color="normal" if avg_resp_time <= 15 else "inverse")
-        
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Departmental Resolution Speed (Minutes)</h5>", unsafe_allow_html=True)
-        if not fb_df.empty and 'resolution_time_mins' in fb_df.columns:
-            dept_speed = fb_df.groupby('department')['resolution_time_mins'].mean().reset_index()
-            fig_speed = px.bar(dept_speed, x='resolution_time_mins', y='department', orientation='h', color='department', color_discrete_sequence=["#1A1A1A", "#7EC8BD", "#A9B5B0", "#cf6231"])
-            fig_speed.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False, xaxis_title="Average Minutes to Resolve", yaxis_title="")
-            st.plotly_chart(fig_speed, use_container_width=True)
-        else:
-            st.info("Resolution timestamp data not fully available in current Firebase stream.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 4: SENTIMENT & PREDICTIVE GAP ANALYSIS ---
-        st.markdown("<div class='section-header'>4. Predictive Forecasting & Gap Analysis</div>", unsafe_allow_html=True)
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>The Feedback Gap</h5>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 0.85rem; color: #666;'>Comparing Live Issue Volume against Final TrustYou Scores.</p>", unsafe_allow_html=True)
-        
-        if not fb_df.empty:
-            live_vol = fb_df['department'].value_counts().reset_index()
-            live_vol.columns = ['Department', 'Live_Tickets']
-        else:
-            live_vol = pd.DataFrame([{"Department": "Maintenance", "Live_Tickets": 5}, {"Department": "Housekeeping", "Live_Tickets": 2}])
-            
-        ty_dept_score = ty_df[ty_df['Extracted_Dept'] != 'General'].groupby('Extracted_Dept')['Score'].mean().reset_index()
-        ty_dept_score.columns = ['Department', 'TY_Score']
-        
-        gap_df = pd.merge(live_vol, ty_dept_score, on='Department', how='outer').fillna(0)
-        
-        if not gap_df.empty:
-            fig_gap = go.Figure()
-            fig_gap.add_trace(go.Bar(x=gap_df['Department'], y=gap_df['Live_Tickets'], name='Live Tickets Logged', marker_color='#1A1A1A', yaxis='y1'))
-            fig_gap.add_trace(go.Scatter(x=gap_df['Department'], y=gap_df['TY_Score'], name='TrustYou Score', marker_color='#cf6231', mode='lines+markers', yaxis='y2'))
-            fig_gap.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                yaxis=dict(title="Live Tickets", side="left", showgrid=False),
-                yaxis2=dict(title="TrustYou Score", side="right", overlaying="y", range=[0, 100], showgrid=True, gridcolor='rgba(0,0,0,0.05)')
-            )
-            st.plotly_chart(fig_gap, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 5: UNIFIED ROOM BURN-RATE HEATMAP ---
-        st.markdown("<div class='section-header'>5. Unified Floor Heatmap (All Platforms)</div>", unsafe_allow_html=True)
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        
-        heatmap_data = []
-        if not fb_df.empty and 'guestName' in fb_df.columns:
-            fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
-            for _, row in fb_df.dropna(subset=['Room']).iterrows():
-                heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
+            st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
+            pie_cols = st.columns(4)
+            platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
+            for idx, platform in enumerate(platforms):
+                target = st.session_state.gm_targets.get(platform, 85)
+                plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
+                actual = plat_data['Score'].mean() if not plat_data.empty else 0
+                achieved, missing = min(actual, target), max(0, target - actual)
                 
-        if not ty_df.empty:
-            mapped_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)]
-            for _, row in mapped_ty.iterrows():
-                heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2})
-                
-        heat_df = pd.DataFrame(heatmap_data)
-        
-        if not heat_df.empty:
-            heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
-            floor_vol = heat_df.groupby(['Floor', 'Room', 'Source'])['Weight'].sum().reset_index()
+                fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
+                fig.update_layout(showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)])
+                with pie_cols[idx]:
+                    st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem;'>{platform}</p>", unsafe_allow_html=True)
+                    st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with tab2:
+            st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
+            saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
+            slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
             
-            fig_heat = px.treemap(
-                floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source',
-                color_discrete_map={"Live Tracker": "#cf6231", "TrustYou (Negative)": "#8e2a2a"}
-            )
-            fig_heat.update_layout(margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)", height=400)
-            st.plotly_chart(fig_heat, use_container_width=True)
-            st.info("💡 **How to read:** Orange blocks represent live Vercel maintenance/housekeeping tickets. Red blocks represent bad TrustYou reviews mapped directly to the room via the Opera PMS file. Double-layered rooms require immediate CapEx or HOD intervention.")
-        else:
-            if uploaded_xml is None:
-                st.warning("Upload the Opera PMS XML file to unlock physical Room-Level TrustYou mapping.")
-            else:
-                st.info("No negative room-specific issues detected across platforms.")
-        st.markdown("</div>", unsafe_allow_html=True)
+            actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
+            confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
+            save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
+            
+            c1, c2, c3, c4 = st.columns(4, gap="medium")
+            with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
+            with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}", "Live tracker resolution spend")
+            with c3: st.metric("Confirmed Praises", f"{confirmed_praises}", "In-house praise matching positive review")
+            with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", "Slipped through to post-stay", delta_color="inverse")
+            
+            if not slipped_cases.empty:
+                st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: #8e2a2a; font-weight: 800; margin-bottom: 10px;'>Drill-down: Guests Who Slipped Through (Negative Post-Stay Reviews)</h5>", unsafe_allow_html=True)
+                st.dataframe(slipped_cases[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        with tab3:
+            st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
+            
+            heatmap_data = []
+            if not fb_df.empty and 'guestName' in fb_df.columns:
+                fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
+                for _, row in fb_df.dropna(subset=['Room']).iterrows():
+                    heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
+                    
+            if not ty_df.empty:
+                mapped_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)]
+                for _, row in mapped_ty.iterrows():
+                    heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2})
+                    
+            heat_df = pd.DataFrame(heatmap_data)
+            
+            col_heat, col_grid = st.columns([1.2, 1], gap="large")
+            
+            with col_heat:
+                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Unified Floor Heatmap</h5>", unsafe_allow_html=True)
+                st.info("🖱️ **Interaction Guide:** Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
+                
+                if not heat_df.empty:
+                    heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
+                    floor_vol = heat_df.groupby(['Floor', 'Room', 'Source'])['Weight'].sum().reset_index()
+                    
+                    fig_heat = px.treemap(
+                        floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source',
+                        color_discrete_map={"Live Tracker": "#cf6231", "TrustYou (Negative)": "#8e2a2a"}
+                    )
+                    fig_heat.update_layout(margin=dict(t=25, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)", height=350)
+                    st.plotly_chart(fig_heat, use_container_width=True)
+                else:
+                    if uploaded_xml is None: st.warning("Upload the Opera PMS XML file to unlock physical Room-Level TrustYou mapping.")
+                    else: st.success("No negative room-specific issues detected across platforms.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+            with col_grid:
+                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Room-Level Incident Log Interface</h5>", unsafe_allow_html=True)
+                
+                if not ty_df[ty_df['Opera_Room'].notna()].empty:
+                    st.markdown("<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 5px;'>Post-Stay Discovered Issues (Via TrustYou)</p>", unsafe_allow_html=True)
+                    drill_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)][['Opera_Room', 'Extracted_Dept', 'Score']]
+                    drill_ty.columns = ['Room', 'Complaint Dept', 'Score']
+                    st.dataframe(drill_ty, hide_index=True, use_container_width=True, height=150)
+                else:
+                    st.markdown("<p style='font-size: 0.85rem; color: #888;'>No mapped post-stay issues.</p>", unsafe_allow_html=True)
+                    
+                st.markdown("<p style='font-size: 0.85rem; color: #cf6231; font-weight: 700; margin-bottom: 5px; margin-top: 15px;'>Live In-House Logged Issues (Via Tracker)</p>", unsafe_allow_html=True)
+                if not fb_df.empty and 'Room' in fb_df.columns:
+                    drill_fb = fb_df.dropna(subset=['Room'])[['Room', 'department', 'status']]
+                    drill_fb.columns = ['Room', 'Logged Dept', 'Current Status']
+                    st.dataframe(drill_fb, hide_index=True, use_container_width=True, height=150)
+                else:
+                    st.markdown("<p style='font-size: 0.85rem; color: #888;'>No live rooms actively mapped.</p>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Pipeline Execution Failure: {e}")
