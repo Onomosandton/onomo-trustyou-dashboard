@@ -43,9 +43,10 @@ vibe_b64 = get_base64_image("vibe1.jpg")
 
 st.markdown("""
 <style>
+    /* Fixed: Removed the 'header' hide rule so the sidebar toggle arrow remains visible */
     [data-testid="stToolbar"] {display: none !important;}
     footer {display: none !important;}
-    header {display: none !important;}
+    
     .stApp { background-color: #F8F9FA; }
     h1, h2, h3, h4, h5, h6, p, span, div { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
     
@@ -128,7 +129,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
     
     open_tickets_total = len(fb_df[fb_df['status'] == 'open'])
     
-    # Calculate Last 24 Hours
     last_24h_boundary = pd.Timestamp.now().replace(tzinfo=None) - pd.Timedelta(days=1)
     open_tickets_24h = len(fb_df[(fb_df['status'] == 'open') & (fb_df['date'] >= last_24h_boundary)])
     
@@ -138,7 +138,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
             counts = rooms.value_counts()
             criticals = counts[counts >= 2]
             
-            # Limit to Top 3 to prevent scrolling fatigue
             for rm, ct in criticals.head(3).items():
                 alerts_html += f"<div class='alert-box'>Alert: Room {rm} - {ct} unresolved complaints recorded.</div>"
             
@@ -196,7 +195,6 @@ if uploaded_csv is None:
         st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Predictive<br>Operations Hub.</h1>", unsafe_allow_html=True)
         st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores. Please process your weekly exports via the sidebar.</p>", unsafe_allow_html=True)
         
-        # Optimized Live Snapshot Grid
         tracker_state = "System Online" if not fb_df.empty else "System Offline"
         st.markdown(f"""
         <div class='glass-container'>
