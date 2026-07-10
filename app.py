@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction & Bulletproof Regex Table Parser
+# 4. Data Extraction Engines
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -93,7 +93,6 @@ def parse_pdf_flash_report(pdf_file):
             if t: full_text += t + " "
             
         flat_text = full_text.replace('\n', ' ').replace('\r', ' ')
-        
         metrics = {
             "ADR": ["ADR", "Average Room Rate"],
             "Room Revenue": ["Room Revenue", "Total Room Rev", "Rooms Revenue"],
@@ -106,8 +105,7 @@ def parse_pdf_flash_report(pdf_file):
                 match = re.search(pattern, flat_text, re.IGNORECASE)
                 if match:
                     try:
-                        val = float(match.group(2).replace(",", ""))
-                        actuals[key] = val
+                        actuals[key] = float(match.group(2).replace(",", ""))
                         break
                     except ValueError:
                         pass
@@ -179,7 +177,8 @@ if not fb_df.empty and 'date' in fb_df.columns:
     open_tickets_24h = len(fb_df[(fb_df['status'] == 'open') & (fb_df['date'] >= last_24h_boundary)])
     
     if 'guestName' in fb_df.columns:
-        rooms = fb_df['guestName'].str.extract(r'(\d{3,4})')[0].dropna()
+        fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
+        rooms = fb_df['Room'].dropna()
         if not rooms.empty:
             counts = rooms.value_counts()
             criticals = counts[counts >= 2]
@@ -339,34 +338,60 @@ else:
                 if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author: return op_row['Room_No']
             return None
 
+        # STRICT MAPPING: Primary matching by Opera Room Number, fallback to Guest Name
         def cross_reference_synergy(row, live_db):
-            detected_dept = mine_review_text_department(row.get('Review Text', ''))
-            author_name = str(row['Author name']).lower().strip()
-            review_date = row['Published date']
+            score = row.get('Score', 0)
+            review_date = row.get('Published date')
+            room = row.get('Opera_Room')
             
-            if live_db.empty or pd.isna(review_date) or author_name in ['nan', '']:
-                return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
+            has_ticket = False
+            ticket_status = 'open'
+            actual_cost = 0.0
+            
+            if not live_db.empty and pd.notna(review_date):
+                time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=10)))
+                valid_tickets = live_db[time_window]
                 
-            time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
-            for _, fb_row in live_db[time_window].iterrows():
-                if author_name in str(fb_row['guestName']).lower():
-                    actual_cost = float(fb_row.get('cost', 0.0))
-                    if fb_row['type'] == 'compliment': return ("Praise Confirmed", 0.0)
-                    return ("Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation", actual_cost)
-                    
-            return ("Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback", 0.0)
+                # 1. Match by Room First (The precise operational link)
+                if room and 'Room' in valid_tickets.columns:
+                    matches = valid_tickets[valid_tickets['Room'] == str(room)]
+                    if not matches.empty:
+                        has_ticket = True
+                        ticket_status = matches.iloc[0]['status'].lower()
+                        actual_cost = float(matches.iloc[0].get('cost', 0.0))
+                
+                # 2. Fallback to Name matching if room is unknown
+                if not has_ticket and str(row.get('Author name')).lower().strip() not in ['nan', '']:
+                    author_name = str(row['Author name']).lower().strip()
+                    for _, fb_row in valid_tickets.iterrows():
+                        if author_name in str(fb_row.get('guestName', '')).lower():
+                            has_ticket = True
+                            ticket_status = str(fb_row.get('status', 'open')).lower()
+                            actual_cost = float(fb_row.get('cost', 0.0))
+                            break
+            
+            # The 4-Point Matrix Accountability Logic
+            if score >= 80:
+                if has_ticket and ticket_status == 'resolved': return ("True Save", actual_cost)
+                elif has_ticket: return ("Praise with Open Ticket", actual_cost)
+                else: return ("Flawless Stay", 0.0)
+            else:
+                if has_ticket and ticket_status == 'resolved': return ("False Save", actual_cost)
+                elif has_ticket and ticket_status != 'resolved': return ("Failed Escalation", actual_cost)
+                else: return ("Blindspot", 0.0)
 
+        # Apply Triangulation
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
+        ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
         synergy_results = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
         ty_df['Synergy_Metric'] = [res[0] for res in synergy_results]
         ty_df['Recovery_Cost'] = [res[1] for res in synergy_results]
-        ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
         
         total_reviews = len(ty_df)
         avg_score = ty_df['Score'].mean()
         
-        caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["Resolved In-House", "Failed Escalation"])])
-        actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"])
+        caught_issues = len(ty_df[ty_df['Synergy_Metric'].isin(["True Save", "False Save", "Failed Escalation"])])
+        actual_blindspots = len(ty_df[ty_df['Synergy_Metric'] == "Blindspot"])
         total_actionable_issues = caught_issues + actual_blindspots
         catch_rate = (caught_issues / total_actionable_issues) * 100 if total_actionable_issues > 0 else 0
 
@@ -380,7 +405,7 @@ else:
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("True Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 15px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 20px;'>Platform Target Achievement</h4>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
@@ -394,7 +419,7 @@ else:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 30px; margin-bottom: 15px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 40px; margin-bottom: 20px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
             f_cols = st.columns(3)
             f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
             
@@ -421,29 +446,49 @@ else:
 
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
-            saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
-            slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
-            actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
-            confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
-            save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
+            
+            # 1. NEW: High-Level Volume Overview
+            total_tickets = len(fb_df)
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Volume & Operational Engagement</h4>", unsafe_allow_html=True)
+            v1, v2, v3 = st.columns(3)
+            with v1: st.metric("Total Post-Stay Reviews", f"{total_reviews}")
+            with v2: st.metric("Total In-House Tickets Logged", f"{total_tickets}")
+            engagement_rate = (total_tickets / total_reviews * 100) if total_reviews > 0 else 0
+            with v3: st.metric("Tracker Engagement Ratio", f"{engagement_rate:.1f}%")
+            
+            st.markdown("<hr style='margin: 20px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+            
+            # 2. NEW: The True Resolution Accountability Matrix
+            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>The True Resolution Matrix</h4>", unsafe_allow_html=True)
+            
+            true_saves = ty_df[ty_df['Synergy_Metric'] == 'True Save']
+            false_saves = ty_df[ty_df['Synergy_Metric'] == 'False Save']
+            failed_escalations = ty_df[ty_df['Synergy_Metric'] == 'Failed Escalation']
+            blindspots = ty_df[ty_df['Synergy_Metric'] == 'Blindspot']
+            
+            actual_recovery_spend = ty_df['Recovery_Cost'].sum()
             
             c1, c2, c3, c4 = st.columns(4, gap="medium")
-            with c1: st.metric("The Save Rate", f"{save_rate:.1f}%")
-            with c2: st.metric("Actual Recovery Cost", f"ZAR {actual_recovery_spend:,.2f}")
-            with c3: st.metric("Confirmed Praises", f"{confirmed_praises}")
-            with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", delta_color="inverse")
+            with c1: st.metric("True Saves", f"{len(true_saves)}", "Resolved & Score >80%")
+            with c2: st.metric("False Saves", f"{len(false_saves)}", "Resolved BUT Score <80%", delta_color="inverse")
+            with c3: st.metric("Failed Escalations", f"{len(failed_escalations)}", "Open & Score <80%", delta_color="inverse")
+            with c4: st.metric("Blindspots", f"{len(blindspots)}", "No Ticket & Score <80%", delta_color="inverse")
             
-            if not slipped_cases.empty:
+            st.markdown(f"<p style='font-size: 0.85rem; color: #666; font-weight: 700; margin-top: 10px;'>Total Documented Recovery Spend: ZAR {actual_recovery_spend:,.2f}</p>", unsafe_allow_html=True)
+            
+            # 3. Drill-down of Failures Only
+            failures_df = ty_df[ty_df['Synergy_Metric'].isin(['False Save', 'Failed Escalation', 'Blindspot'])]
+            
+            if not failures_df.empty:
                 st.markdown("<hr style='margin: 30px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Departmental Blindspot Breakdown</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #8e2a2a; font-weight: 800; margin-bottom: 20px;'>Departmental Accountability Breakdown</h4>", unsafe_allow_html=True)
                 
-                # --- The New Side-by-Side Analytics UI ---
                 c_chart, c_table = st.columns([1, 1.5], gap="large")
                 
                 with c_chart:
-                    dept_counts = slipped_cases['Extracted_Dept'].value_counts().reset_index()
-                    dept_counts.columns = ['Department', 'Failed Recoveries']
-                    fig_dept = px.pie(dept_counts, names='Department', values='Failed Recoveries', hole=0.6,
+                    dept_counts = failures_df['Extracted_Dept'].value_counts().reset_index()
+                    dept_counts.columns = ['Department', 'Failures']
+                    fig_dept = px.pie(dept_counts, names='Department', values='Failures', hole=0.6,
                                       color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig_dept.update_layout(margin=dict(t=0, b=0, l=0, r=0), showlegend=True,
                                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -451,23 +496,23 @@ else:
                     st.plotly_chart(fig_dept, use_container_width=True)
                 
                 with c_table:
-                    # Clean Executive Dropdown Filter
                     dept_options = ["All Departments"] + list(dept_counts['Department'])
                     selected_dept = st.selectbox("Isolate Departmental Failures", dept_options)
                     
                     if selected_dept != "All Departments":
-                        display_df = slipped_cases[slipped_cases['Extracted_Dept'] == selected_dept]
+                        display_df = failures_df[failures_df['Extracted_Dept'] == selected_dept]
                     else:
-                        display_df = slipped_cases
+                        display_df = failures_df
                         
-                    st.markdown(f"<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 10px;'>Showing {len(display_df)} failed recoveries for: {selected_dept}</p>", unsafe_allow_html=True)
-                    st.dataframe(display_df[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
+                    st.markdown(f"<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 10px;'>Showing {len(display_df)} accountability failures for: {selected_dept}</p>", unsafe_allow_html=True)
+                    display_cols = display_df[['Published date', 'Synergy_Metric', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score')
+                    display_cols.columns = ['Date', 'Failure Type', 'Department', 'Score', 'Review Text']
+                    st.dataframe(display_cols, use_container_width=True, hide_index=True)
 
         with tab3:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
             heatmap_data = []
             if not fb_df.empty and 'guestName' in fb_df.columns:
-                fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
                 for _, row in fb_df.dropna(subset=['Room']).iterrows():
                     heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
             if not ty_df.empty:
@@ -478,7 +523,8 @@ else:
             
             col_heat, col_grid = st.columns([1.2, 1], gap="large")
             with col_heat:
-                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 10px;'>Unified Floor Heatmap</h4>", unsafe_allow_html=True)
+                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Unified Floor Heatmap</h5>", unsafe_allow_html=True)
                 st.info("Interaction Guide: Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
                 if not heat_df.empty:
                     heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
@@ -489,9 +535,11 @@ else:
                 else:
                     if st.session_state.opera_df.empty: st.warning("Upload the Opera PMS XML file to unlock physical Room-Level TrustYou mapping.")
                     else: st.success("No negative room-specific issues detected across platforms.")
+                st.markdown("</div>", unsafe_allow_html=True)
                 
             with col_grid:
-                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 10px;'>Room-Level Incident Log</h4>", unsafe_allow_html=True)
+                st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Room-Level Incident Log Interface</h5>", unsafe_allow_html=True)
                 if not ty_df[ty_df['Opera_Room'].notna()].empty:
                     st.markdown("<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 5px;'>Post-Stay Discovered Issues (Via TrustYou)</p>", unsafe_allow_html=True)
                     drill_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)][['Opera_Room', 'Extracted_Dept', 'Score']]
@@ -505,6 +553,7 @@ else:
                     drill_fb.columns = ['Room', 'Logged Dept', 'Current Status']
                     st.dataframe(drill_fb, hide_index=True, use_container_width=True, height=120)
                 else: st.markdown("<p style='font-size: 0.85rem; color: #888;'>No live rooms actively mapped.</p>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Pipeline Execution Failure: {e}")
