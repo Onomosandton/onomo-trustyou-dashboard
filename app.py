@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # 1. Page Configuration
-st.set_page_config(page_title="Executive Command Center", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Insights Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
 # 2. Local Storage for GM Targets
 TARGETS_FILE = "gm_targets.json"
@@ -50,12 +50,14 @@ st.markdown("""
     div[data-testid="metric-container"] { background: #FFFFFF !important; padding: 20px; border-radius: 12px; border-top: 4px solid #7EC8BD; box-shadow: 0 10px 30px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.01); }
     div[data-testid="metric-container"] label { color: #888888 !important; font-weight: 700 !important; font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 1px; }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2.2rem !important; }
-    .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.01) !important; margin-bottom: 25px; }
+    .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02) !important; margin-bottom: 25px; }
     .section-header { font-size: 1.4rem; font-weight: 900; color: #1A1A1A; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #F0F0F0; padding-bottom: 10px;}
+    .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
+    .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines (Firebase & Opera XML)
+# 4. Data Extraction Pipelines
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -103,35 +105,35 @@ def parse_opera_xml(xml_file):
                 })
         return pd.DataFrame(records)
     except Exception as e:
-        st.sidebar.error(f"XML Parsing Error: {e}")
+        st.error(f"XML Parsing Error: {e}")
         return pd.DataFrame()
 
 # Fetch Live Firebase Feed
 fb_df = fetch_live_firebase_data()
+open_tickets = 0
+alerts_html = ""
+
 if not fb_df.empty and 'date' in fb_df.columns:
     fb_df['date'] = pd.to_datetime(fb_df['date'], errors='coerce').dt.tz_localize(None)
     if 'resolvedAt' in fb_df.columns:
         fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
+    
+    open_tickets = len(fb_df[fb_df['status'] == 'open'])
+    
+    # Calculate Live Critical Alerts
+    if 'guestName' in fb_df.columns:
+        rooms = fb_df['guestName'].str.extract(r'(\d{3,4})')[0].dropna()
+        if not rooms.empty:
+            counts = rooms.value_counts()
+            criticals = counts[counts >= 2]
+            for rm, ct in criticals.items():
+                alerts_html += f"<div class='alert-box'>⚠️ Room {rm}: {ct} complaints recorded in current cycle.</div>"
 
-# 5. Sidebar: Target Setup & Dual File Upload
-with st.sidebar:
-    st.markdown("<h3 style='font-weight:900;'>⚙️ GM Target Setup</h3>", unsafe_allow_html=True)
-    new_targets = {}
-    for platform in ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]:
-        new_targets[platform] = st.slider(f"{platform} Target", 50, 100, st.session_state.gm_targets.get(platform, 85))
-    if st.button("Save Targets"):
-        st.session_state.gm_targets = new_targets
-        save_targets(new_targets)
-        st.success("Targets locked.")
-        
-    st.markdown("---")
-    st.markdown("<h4 style='font-weight:900;'>Data Ingestion</h4>", unsafe_allow_html=True)
-    uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"])
-    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], help="Optional: Unlocks Room Heatmaps")
-    if st.button("Reset Dashboard"): st.rerun()
+if alerts_html == "":
+    alerts_html = "<div class='stable-box'>✅ Floor stable. No repeat critical issues detected.</div>"
 
-# 6. Header
+# 5. Header Component
 aleph_img_tag = '<img src="data:image/png;base64,' + aleph_b64 + '" width="160" style="mix-blend-mode: multiply;">' if aleph_b64 else '<span style="font-weight:900; font-size:20px;">ALEPH</span>'
 onomo_img_tag = '<img src="data:image/jpeg;base64,' + onomo_b64 + '" width="170" style="mix-blend-mode: multiply;">' if onomo_b64 else '<span style="font-weight:900; font-size:20px;">ONOMO</span>'
 
@@ -139,7 +141,7 @@ header_html = """
 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0 20px 0; border-bottom: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
     <div style="flex: 1;">""" + aleph_img_tag + """</div>
     <div style="flex: 2; text-align: center;">
-        <h2 style="margin: 0; color: #1A1A1A; font-weight: 900; letter-spacing: -0.5px; font-size: 2rem;">EXECUTIVE COMMAND CENTER</h2>
+        <h2 style="margin: 0; color: #1A1A1A; font-weight: 900; letter-spacing: -0.5px; font-size: 2rem;">INSIGHTS DASHBOARD</h2>
         <p style="margin: 5px 0 0 0; color: #7EC8BD; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px;">Sandton Predictive Operations</p>
     </div>
     <div style="flex: 1; display: flex; justify-content: flex-end;">""" + onomo_img_tag + """</div>
@@ -147,15 +149,61 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
+# 6. Persistent Top Call-to-Action (Centralized Upload & Targets)
+with st.expander("⚙️ Set Executive KPI Targets (Year-End Goals)", expanded=False):
+    st.markdown("<p style='color: #666; font-size: 0.9rem;'>Adjust your baseline targets to actively monitor performance gaps on the dashboard.</p>", unsafe_allow_html=True)
+    t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1, 1, 1, 1, 0.5])
+    new_targets = {}
+    with t_c1: new_targets["TrustYou Survey"] = st.slider("TrustYou Target", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
+    with t_c2: new_targets["booking.com"] = st.slider("Booking.com Target", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
+    with t_c3: new_targets["google.com"] = st.slider("Google Target", 50, 100, st.session_state.gm_targets.get("google.com", 85))
+    with t_c4: new_targets["tripadvisor.com"] = st.slider("TripAdvisor Target", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
+    with t_c5:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Lock Targets", use_container_width=True):
+            st.session_state.gm_targets = new_targets
+            save_targets(new_targets)
+
+st.markdown("<h4 style='font-weight:900; margin-top: 10px; color: #1A1A1A;'>📥 Data Synchronization Drop-Zone</h4>", unsafe_allow_html=True)
+col_csv, col_xml = st.columns(2, gap="medium")
+with col_csv:
+    uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"], help="Mandatory: Core sentiment scores.")
+with col_xml:
+    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], help="Optional: Unlocks Physical Floor Heatmap triangulations.")
+
+st.markdown("---")
+
 # 7. Core Application Logic or Welcome Screen
 if uploaded_csv is None:
-    # --- RESTORED WELCOME DASHBOARD PAGE ---
+    # --- RESTORED & ENHANCED WELCOME DASHBOARD PAGE ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        st.markdown("<div style='padding-top: 30px;'></div>", unsafe_allow_html=True)
-        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 4rem; line-height: 1.05; letter-spacing: -1.5px; margin-bottom: 20px;'>Welcome to<br>Sandton Operations.</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #666666; font-size: 1.25rem; line-height: 1.7; margin-bottom: 40px; max-width: 90%;'>Ignite the engine by uploading the latest weekly CSV report and Opera XML in the sidebar. The system will instantly correlate guest sentiment with our on-the-ground floor trackers.</p>", unsafe_allow_html=True)
+        st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Predictive<br>Operations Hub.</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores.</p>", unsafe_allow_html=True)
+        
+        # High-Level Live Snapshot Grid (COO Suggestion)
+        tracker_state = "🟢 Online" if not fb_df.empty else "🔴 Offline"
+        st.markdown(f"""
+        <div class='glass-container'>
+            <h4 style='margin-top:0; color: #1A1A1A; font-weight: 900;'>📡 Live Floor Snapshot</h4>
+            <div style='display: flex; justify-content: space-between; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(0,0,0,0.05);'>
+                <div>
+                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Tracker Status</span><br>
+                    <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{tracker_state}</span>
+                </div>
+                <div style='text-align: right;'>
+                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Open Live Tickets</span><br>
+                    <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{open_tickets}</span>
+                </div>
+            </div>
+            <div style='margin-top: 15px;'>
+                <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Critical Alerts</span><br>
+                <div style='margin-top: 8px;'>{alerts_html}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
             
     with welcome_right:
         img_src = "data:image/jpeg;base64," + vibe_b64 if vibe_b64 else "https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
@@ -166,13 +214,12 @@ if uploaded_csv is None:
         st.markdown(image_html, unsafe_allow_html=True)
 
 else:
+    # --- ACTIVE DASHBOARD STATE ---
     try:
-        # Load TrustYou
         ty_df = pd.read_csv(uploaded_csv)
         ty_df['Score'] = pd.to_numeric(ty_df['Score'], errors='coerce')
         ty_df['Published date'] = pd.to_datetime(ty_df['Published date'], errors='coerce').dt.tz_localize(None)
         
-        # Load Opera PMS XML if provided
         opera_df = pd.DataFrame()
         if uploaded_xml is not None:
             opera_df = parse_opera_xml(uploaded_xml)
@@ -199,7 +246,6 @@ else:
                     return op_row['Room_No']
             return None
 
-        # EXACT ALIGNMENT: Returns BOTH the Synergy Status AND the actual cost logged by staff
         def cross_reference_synergy(row, live_db):
             detected_dept = mine_review_text_department(row.get('Review Text', ''))
             author_name = str(row['Author name']).lower().strip()
@@ -264,7 +310,6 @@ else:
         saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
         slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
         
-        # Calculate precise, actual costs from Vercel tracker data
         actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
         confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
         save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
@@ -278,7 +323,6 @@ else:
         # --- SECTION 3: OPERATIONAL EFFICIENCY & LIVE STREAM ---
         st.markdown("<div class='section-header'>3. Operational Efficiency & Live Stream</div>", unsafe_allow_html=True)
         
-        open_tickets = len(fb_df[fb_df['status'] == 'open']) if not fb_df.empty else 0
         avg_resp_time = fb_df['resolution_time_mins'].mean() if not fb_df.empty and 'resolution_time_mins' in fb_df.columns else 0
         
         e1, e2 = st.columns(2, gap="medium")
