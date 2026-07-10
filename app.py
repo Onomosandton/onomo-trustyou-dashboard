@@ -65,11 +65,13 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
-    .streamlit-expanderHeader { font-weight: 800 !important; color: #1A1A1A !important; font-size: 1.05rem !important; }
+    
+    /* Sleek styling for expanders to match your requested layout */
+    .streamlit-expanderHeader { color: #333 !important; font-size: 0.95rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines (100% Live)
+# 4. Data Extraction Pipelines (100% Live, No Dummy Data)
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -161,8 +163,48 @@ if not st.session_state.active_report:
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        # Expander 1: Targets
-        with st.expander("TARGET CONFIGURATIONS", expanded=False):
+        
+        # Sleek, borderless Live Floor Snapshot matching the screenshot
+        tracker_state = "Online" if not fb_df.empty else "Offline"
+        st.markdown(f"""
+        <div style='margin-bottom: 25px;'>
+            <h2 style='color: #1A1A1A; font-weight: 900; font-size: 1.8rem; margin-bottom: 25px;'>Live Floor Snapshot</h2>
+            <div style='display: flex; justify-content: space-between; padding-bottom: 5px; width: 85%;'>
+                <div>
+                    <div style='color: #666; font-size: 0.85rem; margin-bottom: 5px;'>Tracker Status</div>
+                    <div style='color: #2C3E50; font-size: 2.2rem; font-weight: 400; line-height: 1;'>{tracker_state}</div>
+                </div>
+                <div>
+                    <div style='color: #666; font-size: 0.85rem; margin-bottom: 5px;'>Active Last 24 Hrs</div>
+                    <div style='color: #2C3E50; font-size: 2.2rem; font-weight: 400; line-height: 1;'>{open_tickets_24h}</div>
+                </div>
+                <div>
+                    <div style='color: #666; font-size: 0.85rem; margin-bottom: 5px;'>Total Cycle Backlog</div>
+                    <div style='color: #2C3E50; font-size: 2.2rem; font-weight: 400; line-height: 1;'>{open_tickets_total}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 4 Clean Expanders stacked identically
+        with st.expander("View Active Backlog Details", expanded=False):
+            if not fb_df.empty:
+                active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
+                if not active_df.empty:
+                    st.dataframe(active_df, hide_index=True, use_container_width=True)
+                else:
+                    st.success("[STATUS NORMAL] No open tickets currently backlogged.")
+            else:
+                st.info("System Offline: Awaiting live tracker data.")
+                
+        with st.expander(f"View Critical Room Alerts ({len(criticals)})", expanded=False):
+            if not criticals.empty:
+                for rm, ct in criticals.items():
+                    st.markdown(f"<p style='color:#8e2a2a; font-weight:600; font-size: 0.9rem; margin:0; padding: 5px 0;'>[ALERT] Room {rm}: {ct} unresolved complaints recorded.</p>", unsafe_allow_html=True)
+            else:
+                st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
+                
+        with st.expander("Target Configurations", expanded=False):
             st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
             t_c1, t_c2 = st.columns(2)
             new_targets = {}
@@ -172,13 +214,13 @@ if not st.session_state.active_report:
             with t_c2:
                 new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
                 new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
-            if st.button("SAVE TARGETS", use_container_width=True):
+            if st.button("Save Targets", use_container_width=True):
                 st.session_state.gm_targets = new_targets
                 save_targets(new_targets)
                 st.success("System configurations updated.")
                 
-        # Expander 2: File Uploads & Launch
-        with st.expander("DATA SYNCHRONIZATION", expanded=True):
+        with st.expander("Data Synchronization", expanded=False):
+            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Upload weekly reports to generate the Executive Summary.</p>", unsafe_allow_html=True)
             col_csv, col_xml = st.columns(2)
             with col_csv:
                 csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
@@ -186,7 +228,7 @@ if not st.session_state.active_report:
                 xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("GENERATE ANALYTICS", use_container_width=True, type="primary"):
+            if st.button("Generate Analytics", use_container_width=True, type="primary"):
                 if csv_file is not None:
                     parsed_ty = pd.read_csv(csv_file)
                     parsed_ty['Score'] = pd.to_numeric(parsed_ty['Score'], errors='coerce')
@@ -202,46 +244,6 @@ if not st.session_state.active_report:
                     st.rerun()
                 else:
                     st.error("Please upload the required TrustYou CSV to proceed.")
-        
-        st.markdown("<hr style='margin: 25px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-
-        # Sleek, borderless Live Floor Snapshot
-        tracker_state = "System Online" if not fb_df.empty else "System Offline"
-        st.markdown(f"""
-        <div style='margin-bottom: 15px;'>
-            <div style='color: #1A1A1A; font-weight: 800; font-size: 1.05rem; text-transform: uppercase; margin-bottom: 20px;'>LIVE FLOOR SNAPSHOT</div>
-            <div style='display: flex; justify-content: space-between; padding-bottom: 5px;'>
-                <div>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Tracker Status</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{tracker_state}</span>
-                </div>
-                <div style='text-align: center;'>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Active Last 24 Hrs</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #cf6231;'>{open_tickets_24h}</span>
-                </div>
-                <div style='text-align: right;'>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Total Backlog</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #8e2a2a;'>{open_tickets_total}</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Drill-ins mapped directly under the sleek snapshot
-        if not fb_df.empty:
-            with st.expander("VIEW ACTIVE BACKLOG DETAILS", expanded=False):
-                active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
-                if not active_df.empty:
-                    st.dataframe(active_df, hide_index=True, use_container_width=True)
-                else:
-                    st.success("No open tickets currently backlogged.")
-            
-            with st.expander(f"VIEW CRITICAL ROOM ALERTS ({len(criticals)})", expanded=False):
-                if not criticals.empty:
-                    for rm, ct in criticals.items():
-                        st.markdown(f"<p style='color:#8e2a2a; font-weight:700; margin:0;'>[ALERT] Room {rm}: {ct} complaints recorded.</p>", unsafe_allow_html=True)
-                else:
-                    st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
 
     with welcome_right:
         img_src = "data:image/jpeg;base64," + vibe_b64 if vibe_b64 else "https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
@@ -255,7 +257,7 @@ else:
     # --- ACTIVE ANALYTICS DASHBOARD ---
     col_back, col_space = st.columns([1, 5])
     with col_back:
-        if st.button("CLOSE REPORT / RETURN TO HUB", use_container_width=True):
+        if st.button("Close Report / Return to Hub", use_container_width=True):
             st.session_state.active_report = False
             st.session_state.ty_df = pd.DataFrame()
             st.session_state.opera_df = pd.DataFrame()
