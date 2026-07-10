@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # 1. Page Configuration
-st.set_page_config(page_title="Insights Dashboard", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Insights Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 # 2. State Management for Resetting & Targets
 if 'uploader_key' not in st.session_state:
@@ -116,7 +116,8 @@ def parse_opera_xml(xml_file):
         return pd.DataFrame()
 
 fb_df = fetch_live_firebase_data()
-open_tickets = 0
+open_tickets_total = 0
+open_tickets_24h = 0
 alerts_html = ""
 
 if not fb_df.empty and 'date' in fb_df.columns:
@@ -125,20 +126,51 @@ if not fb_df.empty and 'date' in fb_df.columns:
         fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
     
-    open_tickets = len(fb_df[fb_df['status'] == 'open'])
+    open_tickets_total = len(fb_df[fb_df['status'] == 'open'])
+    
+    # Calculate Last 24 Hours
+    last_24h_boundary = pd.Timestamp.now().replace(tzinfo=None) - pd.Timedelta(days=1)
+    open_tickets_24h = len(fb_df[(fb_df['status'] == 'open') & (fb_df['date'] >= last_24h_boundary)])
     
     if 'guestName' in fb_df.columns:
         rooms = fb_df['guestName'].str.extract(r'(\d{3,4})')[0].dropna()
         if not rooms.empty:
             counts = rooms.value_counts()
             criticals = counts[counts >= 2]
-            for rm, ct in criticals.items():
-                alerts_html += f"<div class='alert-box'>⚠️ Room {rm}: {ct} complaints recorded in current cycle.</div>"
+            
+            # Limit to Top 3 to prevent scrolling fatigue
+            for rm, ct in criticals.head(3).items():
+                alerts_html += f"<div class='alert-box'>Alert: Room {rm} - {ct} unresolved complaints recorded.</div>"
+            
+            if len(criticals) > 3:
+                alerts_html += f"<div style='font-size: 0.85rem; color: #888; font-weight: 700; margin-top: 5px;'>+ {len(criticals) - 3} additional rooms require attention.</div>"
 
 if alerts_html == "":
-    alerts_html = "<div class='stable-box'>✅ Floor stable. No repeat critical issues detected.</div>"
+    alerts_html = "<div class='stable-box'>Status Normal: No repeat critical issues detected.</div>"
 
-# 5. Header Component
+# 5. Sidebar Restored (Targets and Uploads)
+with st.sidebar:
+    st.markdown("<h3 style='font-weight:900;'>GM Target Setup</h3>", unsafe_allow_html=True)
+    new_targets = {}
+    for platform in ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]:
+        new_targets[platform] = st.slider(f"{platform} Target", 50, 100, st.session_state.gm_targets.get(platform, 85))
+    if st.button("Save Targets"):
+        st.session_state.gm_targets = new_targets
+        save_targets(new_targets)
+        st.toast("Targets successfully locked.")
+        
+    st.markdown("---")
+    st.markdown("<h3 style='font-weight:900;'>Data Ingestion</h3>", unsafe_allow_html=True)
+    uploaded_csv = st.file_uploader("TrustYou Data (.csv)", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}", help="Mandatory: Core sentiment scores.")
+    uploaded_xml = st.file_uploader("Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", help="Optional: Unlocks Room Heatmaps.")
+    
+    if uploaded_csv is not None:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Return to Hub", use_container_width=True):
+            st.session_state.uploader_key += 1
+            st.rerun()
+
+# 6. Header Component
 aleph_img_tag = '<img src="data:image/png;base64,' + aleph_b64 + '" width="160" style="mix-blend-mode: multiply;">' if aleph_b64 else '<span style="font-weight:900; font-size:20px;">ALEPH</span>'
 onomo_img_tag = '<img src="data:image/jpeg;base64,' + onomo_b64 + '" width="170" style="mix-blend-mode: multiply;">' if onomo_b64 else '<span style="font-weight:900; font-size:20px;">ONOMO</span>'
 
@@ -154,52 +186,37 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
-# 6. Welcome Landing Interface (Only shows if no CSV uploaded)
-uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}", help="Mandatory: Core sentiment scores.")
-
+# 7. Core Application Logic or Welcome Screen
 if uploaded_csv is None:
-    
-    with st.expander("⚙️ Set Executive KPI Targets (Year-End Goals)", expanded=False):
-        st.markdown("<p style='color: #666; font-size: 0.9rem;'>Adjust your baseline targets to actively monitor performance gaps.</p>", unsafe_allow_html=True)
-        t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns([1, 1, 1, 1, 0.5])
-        new_targets = {}
-        with t_c1: new_targets["TrustYou Survey"] = st.slider("TrustYou Target", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
-        with t_c2: new_targets["booking.com"] = st.slider("Booking.com Target", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
-        with t_c3: new_targets["google.com"] = st.slider("Google Target", 50, 100, st.session_state.gm_targets.get("google.com", 85))
-        with t_c4: new_targets["tripadvisor.com"] = st.slider("TripAdvisor Target", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
-        with t_c5:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Lock Targets", use_container_width=True):
-                st.session_state.gm_targets = new_targets
-                save_targets(new_targets)
-                st.toast("✅ Targets successfully locked!", icon="🎯")
-                
-    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", help="Optional: Unlocks Physical Floor Heatmap triangulations.")
-    
-    st.markdown("---")
+    # --- RESTORED WELCOME DASHBOARD PAGE ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
         st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
         st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Predictive<br>Operations Hub.</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores. Please process your weekly exports via the sidebar.</p>", unsafe_allow_html=True)
         
-        tracker_state = "🟢 Online" if not fb_df.empty else "🔴 Offline"
+        # Optimized Live Snapshot Grid
+        tracker_state = "System Online" if not fb_df.empty else "System Offline"
         st.markdown(f"""
         <div class='glass-container'>
-            <h4 style='margin-top:0; color: #1A1A1A; font-weight: 900;'>📡 Live Floor Snapshot</h4>
+            <h4 style='margin-top:0; color: #1A1A1A; font-weight: 900;'>Live Floor Snapshot</h4>
             <div style='display: flex; justify-content: space-between; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(0,0,0,0.05);'>
                 <div>
                     <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Tracker Status</span><br>
                     <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{tracker_state}</span>
                 </div>
+                <div style='text-align: center;'>
+                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Active Last 24 Hrs</span><br>
+                    <span style='font-size: 1.6rem; font-weight: 900; color: #cf6231;'>{open_tickets_24h}</span>
+                </div>
                 <div style='text-align: right;'>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Open Live Tickets</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{open_tickets}</span>
+                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Total Cycle Backlog</span><br>
+                    <span style='font-size: 1.6rem; font-weight: 900; color: #8e2a2a;'>{open_tickets_total}</span>
                 </div>
             </div>
             <div style='margin-top: 15px;'>
-                <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Critical Alerts</span><br>
+                <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Critical Active Alerts (Top 3 Offenders)</span><br>
                 <div style='margin-top: 8px;'>{alerts_html}</div>
             </div>
         </div>
@@ -215,18 +232,6 @@ if uploaded_csv is None:
 
 else:
     # --- ACTIVE ANALYTICS DASHBOARD (BIRDSEYE TABS) ---
-    st.markdown("<hr style='margin: 0px 0px 20px 0px;'>", unsafe_allow_html=True)
-    
-    # 🔙 Back Button Logic
-    col_back, col_space = st.columns([1, 5])
-    with col_back:
-        if st.button("🔙 Return to Hub", use_container_width=True):
-            st.session_state.uploader_key += 1
-            st.rerun()
-
-    # Note: We must re-declare uploaded_xml here to catch it if uploaded alongside CSV
-    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", label_visibility="collapsed")
-    
     try:
         ty_df = pd.read_csv(uploaded_csv)
         ty_df['Score'] = pd.to_numeric(ty_df['Score'], errors='coerce')
@@ -285,7 +290,7 @@ else:
         catch_rate = ((total_reviews - actual_blindspots) / total_reviews) * 100 if total_reviews > 0 else 0
 
         # === THE BIRDSEYE TABS ===
-        tab1, tab2, tab3 = st.tabs(["📊 Executive Summary", "💰 Service Recovery & ROI", "🏨 Floor Operations & Heatmap"])
+        tab1, tab2, tab3 = st.tabs(["Executive Summary", "Service Recovery & ROI", "Floor Operations & Heatmap"])
 
         with tab1:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
@@ -354,7 +359,7 @@ else:
             with col_heat:
                 st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
                 st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Unified Floor Heatmap</h5>", unsafe_allow_html=True)
-                st.info("🖱️ **Interaction Guide:** Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
+                st.info("Interaction Guide: Click a room or floor to zoom in. To zoom back out, click the top banner of the chart.")
                 
                 if not heat_df.empty:
                     heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
