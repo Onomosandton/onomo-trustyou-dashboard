@@ -193,6 +193,7 @@ if not st.session_state.active_report:
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
+        
         tracker_state = "Online" if not fb_df.empty else "Offline"
         st.markdown(f"""
         <div style='margin-bottom: 25px;'>
@@ -228,43 +229,45 @@ if not st.session_state.active_report:
             else: st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
                 
         with st.expander("Target Configurations", expanded=False):
-            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
-            
-            st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
-            t_c1, t_c2 = st.columns(2)
-            new_targets = {}
-            with t_c1:
-                new_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, int(st.session_state.gm_targets.get("TrustYou Survey", 85)))
-                new_targets["google.com"] = st.slider("Google Score", 50, 100, int(st.session_state.gm_targets.get("google.com", 85)))
-            with t_c2:
-                new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, int(st.session_state.gm_targets.get("booking.com", 85)))
-                new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, int(st.session_state.gm_targets.get("tripadvisor.com", 85)))
-            
-            st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-            st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
-            f_c1, f_c2, f_c3 = st.columns(3)
-            
-            # Fixed: Properly closed f-string syntax format brackets
-            with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{float(st.session_state.gm_targets.get('ADR', 1500.0)):,.2f}")
-            with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('Room Revenue', 500000.0)):,.0f}")
-            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0)):,.0f}")
-            
-            if st.button("Save Targets", use_container_width=True):
-                def sanitize_input(val_str, fallback):
-                    try:
-                        clean = re.sub(r'[^\d.]', '', str(val_str))
-                        return float(clean) if clean else fallback
-                    except Exception:
-                        return fallback
+            # FIXED: Housed the input fields inside an explicit Streamlit Form block to isolate typing from the rerun cycle
+            with st.form("target_form_block"):
+                st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
+                t_c1, t_c2 = st.columns(2)
+                form_targets = {}
+                with t_c1:
+                    form_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, int(st.session_state.gm_targets.get("TrustYou Survey", 85)))
+                    form_targets["google.com"] = st.slider("Google Score", 50, 100, int(st.session_state.gm_targets.get("google.com", 85)))
+                with t_c2:
+                    form_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, int(st.session_state.gm_targets.get("booking.com", 85)))
+                    form_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, int(st.session_state.gm_targets.get("tripadvisor.com", 85)))
                 
-                new_targets["ADR"] = sanitize_input(t_adr, 1500.0)
-                new_targets["Room Revenue"] = sanitize_input(t_room, 500000.0)
-                new_targets["F&B Revenue"] = sanitize_input(t_fb, 150000.0)
+                st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+                st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
+                f_c1, f_c2, f_c3 = st.columns(3)
                 
-                st.session_state.gm_targets = new_targets
-                save_targets(new_targets)
-                st.success("System configurations updated.")
-                st.rerun()
+                with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{float(st.session_state.gm_targets.get('ADR', 1500.0)):,.2f}")
+                with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('Room Revenue', 500000.0)):,.0f}")
+                with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0)):,.0f}")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                submit_targets = st.form_submit_button("Save Targets", use_container_width=True)
+                
+                if submit_targets:
+                    def sanitize_input(val_str, fallback):
+                        try:
+                            clean = re.sub(r'[^\d.]', '', str(val_str))
+                            return float(clean) if clean else fallback
+                        except Exception:
+                            return fallback
+                    
+                    form_targets["ADR"] = sanitize_input(t_adr, 1500.0)
+                    form_targets["Room Revenue"] = sanitize_input(t_room, 500000.0)
+                    form_targets["F&B Revenue"] = sanitize_input(t_fb, 150000.0)
+                    
+                    st.session_state.gm_targets = form_targets
+                    save_targets(form_targets)
+                    st.success("System configurations updated.")
+                    st.rerun()
                 
         with st.expander("Data Synchronization", expanded=True):
             col_csv, col_xml = st.columns(2)
