@@ -7,6 +7,7 @@ import requests
 import base64
 import os
 import json
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # 1. Page Configuration
@@ -44,7 +45,7 @@ st.markdown("""
     .stApp { background-color: #F8F9FA; }
     h1, h2, h3, h4, h5, h6, p, span, div { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
     
-    div[data-testid="stFileUploader"] section { background-color: #FFFFFF !important; border: 2px dashed #7EC8BD !important; border-radius: 12px !important; padding: 20px !important; }
+    div[data-testid="stFileUploader"] section { background-color: #FFFFFF !important; border: 2px dashed #7EC8BD !important; border-radius: 12px !important; padding: 15px !important; }
     div[data-testid="metric-container"] { background: #FFFFFF !important; padding: 20px; border-radius: 12px; border-top: 4px solid #7EC8BD; box-shadow: 0 10px 30px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.01); }
     div[data-testid="metric-container"] label { color: #888888 !important; font-weight: 700 !important; font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 1px; }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2.2rem !important; }
@@ -53,17 +54,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines (BULLETPROOFED)
+# 4. Data Extraction Pipelines (Firebase & Opera XML)
 def fetch_live_firebase_data():
     try:
-        # We forcefully try to grab the key. If anything fails (Missing file, missing key, etc.), we instantly trigger the Except block.
+        if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
         project_id = st.secrets["firebase"]["project_id"]
-        
         base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/artifacts/onomo_live_production_v1/public/data/feedback_entries"
-        response = requests.get(base_url, params={"pageSize": 300}, timeout=4)
         
-        if response.status_code != 200: 
-            return pd.DataFrame()
+        response = requests.get(base_url, params={"pageSize": 300}, timeout=4)
+        if response.status_code != 200: return pd.DataFrame()
             
         documents = response.json().get("documents", [])
         records = []
@@ -71,19 +70,42 @@ def fetch_live_firebase_data():
             fields = doc.get("fields", {})
             records.append({
                 "guestName": str(fields.get("guestName", {}).get("stringValue", "")).strip(),
-                "department": fields.get("department", {}).get("stringValue", ""),
-                "reason": fields.get("reason", {}).get("stringValue", ""),
+                "department": fields.get("department", {}).get("stringValue", "General"),
                 "status": fields.get("status", {}).get("stringValue", "resolved"),
                 "type": fields.get("type", {}).get("stringValue", "complaint"),
-                "cost": float(fields.get("cost", {}).get("doubleValue", fields.get("cost", {}).get("integerValue", 0))),
                 "date": pd.to_datetime(fields.get("date", {}).get("stringValue", ""), errors='coerce'),
                 "resolvedAt": pd.to_datetime(fields.get("resolvedAt", {}).get("stringValue", ""), errors='coerce')
             })
         return pd.DataFrame(records)
     except Exception:
-        # Silently fail and return an empty dataframe so the dashboard still loads perfectly
         return pd.DataFrame()
 
+def parse_opera_xml(xml_file):
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        records = []
+        for elem in root.findall('.//G_GROUP_BY1'):
+            full_name = elem.find('FULL_NAME')
+            room_no = elem.find('ROOM_NO')
+            departure = elem.find('DEPARTURE')
+            
+            if full_name is not None and room_no is not None and departure is not None:
+                # Clean Opera format: "Corcoles,Maria,MRS" -> "Maria Corcoles"
+                name_parts = full_name.text.replace('*', '').split(',')
+                clean_name = f"{name_parts[1]} {name_parts[0]}" if len(name_parts) >= 2 else name_parts[0]
+                
+                records.append({
+                    "Opera_Name": clean_name.strip().lower(),
+                    "Room_No": room_no.text.strip(),
+                    "Departure": pd.to_datetime(departure.text.strip(), format="%d/%m/%y", errors='coerce')
+                })
+        return pd.DataFrame(records)
+    except Exception as e:
+        st.sidebar.error(f"XML Parsing Error: {e}")
+        return pd.DataFrame()
+
+# Fetch Live Firebase Feed
 fb_df = fetch_live_firebase_data()
 if not fb_df.empty and 'date' in fb_df.columns:
     fb_df['date'] = pd.to_datetime(fb_df['date'], errors='coerce').dt.tz_localize(None)
@@ -91,24 +113,22 @@ if not fb_df.empty and 'date' in fb_df.columns:
         fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
 
-# 5. Sidebar: GM Target Setup & File Upload
+# 5. Sidebar: Target Setup & Dual File Upload
 with st.sidebar:
     st.markdown("<h3 style='font-weight:900;'>⚙️ GM Target Setup</h3>", unsafe_allow_html=True)
-    st.markdown("Set Year-End target scores per platform.")
-    
     new_targets = {}
     for platform in ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]:
         new_targets[platform] = st.slider(f"{platform} Target", 50, 100, st.session_state.gm_targets.get(platform, 85))
-    
     if st.button("Save Targets"):
         st.session_state.gm_targets = new_targets
         save_targets(new_targets)
         st.success("Targets locked.")
         
     st.markdown("---")
-    uploaded_file = st.file_uploader("📂 Upload Weekly TrustYou Data", type=["csv"])
-    if st.button("Reset Dashboard"):
-        st.rerun()
+    st.markdown("<h4 style='font-weight:900;'>Data Ingestion</h4>", unsafe_allow_html=True)
+    uploaded_csv = st.file_uploader("1. Drop Weekly TrustYou Data (.csv)", type=["csv"])
+    uploaded_xml = st.file_uploader("2. Drop Opera PMS Report (.xml)", type=["xml"], help="Optional: Unlocks Room Heatmaps")
+    if st.button("Reset Dashboard"): st.rerun()
 
 # 6. Header
 aleph_img_tag = '<img src="data:image/png;base64,' + aleph_b64 + '" width="160" style="mix-blend-mode: multiply;">' if aleph_b64 else '<span style="font-weight:900; font-size:20px;">ALEPH</span>'
@@ -127,26 +147,42 @@ header_html = """
 st.markdown(header_html, unsafe_allow_html=True)
 
 # 7. Core Application Logic
-if uploaded_file is not None:
+if uploaded_csv is not None:
     try:
-        ty_df = pd.read_csv(uploaded_file)
+        # Load TrustYou
+        ty_df = pd.read_csv(uploaded_csv)
         ty_df['Score'] = pd.to_numeric(ty_df['Score'], errors='coerce')
         ty_df['Published date'] = pd.to_datetime(ty_df['Published date'], errors='coerce').dt.tz_localize(None)
         
+        # Load Opera PMS XML if provided
+        opera_df = pd.DataFrame()
+        if uploaded_xml is not None:
+            opera_df = parse_opera_xml(uploaded_xml)
+        
         def mine_review_text_department(text):
-            if pd.isna(text): 
-                return "General"
+            if pd.isna(text): return "General"
             txt = str(text).lower()
-            if any(w in txt for w in ['breakfast', 'menu', 'salt', 'mogodu', 'food', 'chef', 'restaurant']): 
-                return "Food & Beverage"
-            if any(w in txt for w in ['clean', 'dirty', 'housekeeping', 'sheets', 'stain', 'bed']): 
-                return "Housekeeping"
-            if any(w in txt for w in ['aircon', 'ac', 'tv', 'internet', 'wifi', 'broken', 'maintenance', 'socket', 'latch']): 
-                return "Maintenance"
-            if any(w in txt for w in ['front desk', 'reception', 'staff', 'polite', 'rude', 'friendly', 'check-in']): 
-                return "Front Desk"
+            if any(w in txt for w in ['breakfast', 'menu', 'salt', 'mogodu', 'food', 'chef', 'restaurant']): return "Food & Beverage"
+            if any(w in txt for w in ['clean', 'dirty', 'housekeeping', 'sheets', 'stain', 'bed']): return "Housekeeping"
+            if any(w in txt for w in ['aircon', 'ac', 'tv', 'internet', 'wifi', 'broken', 'maintenance', 'socket', 'latch']): return "Maintenance"
+            if any(w in txt for w in ['front desk', 'reception', 'staff', 'polite', 'rude', 'friendly', 'check-in']): return "Front Desk"
             return "General"
             
+        def extract_opera_room(ty_row, op_db):
+            if op_db.empty: return None
+            author = str(ty_row['Author name']).lower().strip()
+            if author == 'nan' or author == '': return None
+            
+            # Fuzzy match TrustYou Author Name to Opera PMS Name within 10 days of review
+            mask = (op_db['Departure'] >= ty_row['Published date'] - timedelta(days=10)) & (op_db['Departure'] <= ty_row['Published date'] + timedelta(days=3))
+            recent_guests = op_db[mask]
+            
+            for _, op_row in recent_guests.iterrows():
+                # Checking if TrustYou first name (e.g., 'Maria') is in Opera Name (e.g., 'Maria Corcoles')
+                if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author:
+                    return op_row['Room_No']
+            return None
+
         def cross_reference_synergy(row, live_db):
             detected_dept = mine_review_text_department(row.get('Review Text', ''))
             author_name = str(row['Author name']).lower().strip()
@@ -158,26 +194,20 @@ if uploaded_file is not None:
                 return "General Feedback"
             
             time_window = (live_db['date'] <= review_date) & (live_db['date'] >= (review_date - timedelta(days=7)))
-            recent_logs = live_db[time_window]
-            
-            for _, fb_row in recent_logs.iterrows():
-                logged_identifier = str(fb_row['guestName']).lower()
-                if author_name in logged_identifier or logged_identifier in author_name:
-                    if fb_row['type'] == 'compliment': 
-                        return "Praise Confirmed"
+            for _, fb_row in live_db[time_window].iterrows():
+                if author_name in str(fb_row['guestName']).lower():
+                    if fb_row['type'] == 'compliment': return "Praise Confirmed"
                     return "Resolved In-House" if fb_row['status'] == 'resolved' else "Failed Escalation"
             
             return "Slipped Through (Blindspot)" if row['Score'] < 80 else "General Feedback"
 
-        ty_df['Synergy_Metric'] = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
+        # Apply Triangulation
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
+        ty_df['Synergy_Metric'] = ty_df.apply(lambda r: cross_reference_synergy(r, fb_df), axis=1)
+        ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
         
         # --- SECTION 1: EXECUTIVE SUMMARY ---
         st.markdown("<div class='section-header'>1. Executive Summary</div>", unsafe_allow_html=True)
-        
-        total_reviews = len(ty_df)
-        avg_score = ty_df['Score'].mean()
-        
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
         pie_cols = st.columns(4)
         platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
@@ -187,20 +217,9 @@ if uploaded_file is not None:
             plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
             actual = plat_data['Score'].mean() if not plat_data.empty else 0
             
-            achieved = min(actual, target)
-            missing = max(0, target - actual)
-            
-            fig = go.Figure(data=[go.Pie(
-                labels=['Achieved', 'Gap to Target'],
-                values=[achieved, missing] if actual > 0 else [0, 100],
-                hole=.7,
-                marker_colors=['#7EC8BD', '#F0F0F0'],
-                textinfo='none'
-            )])
-            fig.update_layout(
-                showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0),
-                annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)]
-            )
+            achieved, missing = min(actual, target), max(0, target - actual)
+            fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap to Target'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
+            fig.update_layout(showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)])
             with pie_cols[idx]:
                 st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem;'>{platform}</p>", unsafe_allow_html=True)
                 st.plotly_chart(fig, use_container_width=True)
@@ -208,108 +227,53 @@ if uploaded_file is not None:
 
         # --- SECTION 2: THE BRIDGE (SERVICE RECOVERY ROI) ---
         st.markdown("<div class='section-header'>2. The Service Recovery ROI</div>", unsafe_allow_html=True)
-        
         saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
         slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
-        
         save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
-        revenue_at_risk_saved = len(saved_cases) * 2500  
         
         c1, c2, c3 = st.columns(3, gap="medium")
         with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
-        with c2: st.metric("Revenue at Risk Intercepted", f"R {revenue_at_risk_saved:,.2f}", "Saved via in-house resolution")
+        with c2: st.metric("Revenue at Risk Intercepted", f"R {len(saved_cases) * 2500:,.2f}", "Saved via in-house resolution")
         with c3: st.metric("Slipped Through The Cracks", f"{len(slipped_cases)}", "Failed service recoveries", delta_color="inverse")
-            
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        if not slipped_cases.empty:
-            st.markdown("<h5 style='color: #8e2a2a; font-weight: 800; margin-bottom: 10px;'>Guests Who Slipped Through (Negative Post-Stay Reviews)</h5>", unsafe_allow_html=True)
-            st.dataframe(slipped_cases[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
-        else:
-            st.success("No guests slipped through the cracks in this reporting period.")
-        st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- SECTION 3: OPERATIONAL EFFICIENCY & LIVE STREAM ---
-        st.markdown("<div class='section-header'>3. Operational Efficiency & Live Stream</div>", unsafe_allow_html=True)
-        
-        open_tickets = len(fb_df[fb_df['status'] == 'open']) if not fb_df.empty else 0
-        avg_resp_time = fb_df['resolution_time_mins'].mean() if not fb_df.empty and 'resolution_time_mins' in fb_df.columns else 0
-        
-        e1, e2 = st.columns(2, gap="medium")
-        with e1: st.metric("Live Open Tickets", f"{open_tickets}", "Currently tracked in-house", delta_color="inverse")
-        with e2: st.metric("Average Resolution Time", f"{avg_resp_time:.1f} mins" if avg_resp_time > 0 else "N/A", "Target: <15 mins", delta_color="normal" if avg_resp_time <= 15 else "inverse")
-        
+        # --- SECTION 3: UNIFIED ROOM BURN-RATE HEATMAP ---
+        st.markdown("<div class='section-header'>3. Unified Floor Heatmap (All Platforms)</div>", unsafe_allow_html=True)
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Departmental Resolution Speed (Minutes)</h5>", unsafe_allow_html=True)
-        if not fb_df.empty and 'resolution_time_mins' in fb_df.columns:
-            dept_speed = fb_df.groupby('department')['resolution_time_mins'].mean().reset_index()
-            fig_speed = px.bar(dept_speed, x='resolution_time_mins', y='department', orientation='h', color='department', color_discrete_sequence=["#1A1A1A", "#7EC8BD", "#A9B5B0", "#cf6231"])
-            fig_speed.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False, xaxis_title="Average Minutes to Resolve", yaxis_title="")
-            st.plotly_chart(fig_speed, use_container_width=True)
+        
+        # Build the unified heat matrix
+        heatmap_data = []
+        
+        # Add Live Vercel Tickets
+        if not fb_df.empty and 'guestName' in fb_df.columns:
+            fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
+            for _, row in fb_df.dropna(subset=['Room']).iterrows():
+                heatmap_data.append({"Room": row['Room'], "Department": row['department'], "Source": "Live Tracker", "Weight": 1})
+                
+        # Add TrustYou Negative Reviews (Triangulated via Opera)
+        if not ty_df.empty:
+            mapped_ty = ty_df[ty_df['Opera_Room'].notna() & (ty_df['Score'] < 80)]
+            for _, row in mapped_ty.iterrows():
+                heatmap_data.append({"Room": str(row['Opera_Room']), "Department": row['Extracted_Dept'], "Source": "TrustYou (Negative)", "Weight": 2}) # Bad reviews weigh heavier
+                
+        heat_df = pd.DataFrame(heatmap_data)
+        
+        if not heat_df.empty:
+            heat_df['Floor'] = "Floor " + heat_df['Room'].str[:-2]
+            floor_vol = heat_df.groupby(['Floor', 'Room', 'Source']).sum('Weight').reset_index()
+            
+            fig_heat = px.treemap(
+                floor_vol, path=['Floor', 'Room', 'Source'], values='Weight', color='Source',
+                color_discrete_map={"Live Tracker": "#cf6231", "TrustYou (Negative)": "#8e2a2a"}
+            )
+            fig_heat.update_layout(margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)", height=400)
+            st.plotly_chart(fig_heat, use_container_width=True)
+            st.info("💡 **How to read:** Orange blocks represent live Vercel maintenance/housekeeping tickets. Red blocks represent bad TrustYou reviews mapped directly to the room via the Opera PMS file. Double-layered rooms require immediate CapEx or HOD intervention.")
         else:
-            st.info("Resolution timestamp data not fully available in current Firebase stream.")
+            if uploaded_xml is None:
+                st.warning("Upload the Opera PMS XML file to unlock physical Room-Level TrustYou mapping.")
+            else:
+                st.info("No negative room-specific issues detected across platforms.")
         st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 4: SENTIMENT & PREDICTIVE GAP ANALYSIS ---
-        st.markdown("<div class='section-header'>4. Predictive Forecasting & Gap Analysis</div>", unsafe_allow_html=True)
-        
-        col_gap, col_heat = st.columns(2, gap="medium")
-        
-        with col_gap:
-            st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>The Feedback Gap</h5>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.85rem; color: #666;'>Comparing Live Issue Volume against Final TrustYou Scores.</p>", unsafe_allow_html=True)
-            
-            if not fb_df.empty:
-                live_vol = fb_df['department'].value_counts().reset_index()
-                live_vol.columns = ['Department', 'Live_Tickets']
-            else:
-                live_vol = pd.DataFrame([{"Department": "Maintenance", "Live_Tickets": 5}, {"Department": "Housekeeping", "Live_Tickets": 2}])
-                
-            ty_dept_score = ty_df[ty_df['Extracted_Dept'] != 'General'].groupby('Extracted_Dept')['Score'].mean().reset_index()
-            ty_dept_score.columns = ['Department', 'TY_Score']
-            
-            gap_df = pd.merge(live_vol, ty_dept_score, on='Department', how='outer').fillna(0)
-            
-            if not gap_df.empty:
-                fig_gap = go.Figure()
-                fig_gap.add_trace(go.Bar(x=gap_df['Department'], y=gap_df['Live_Tickets'], name='Live Tickets Logged', marker_color='#1A1A1A', yaxis='y1'))
-                fig_gap.add_trace(go.Scatter(x=gap_df['Department'], y=gap_df['TY_Score'], name='TrustYou Score', marker_color='#cf6231', mode='lines+markers', yaxis='y2'))
-                fig_gap.update_layout(
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    yaxis=dict(title="Live Tickets", side="left", showgrid=False),
-                    yaxis2=dict(title="TrustYou Score", side="right", overlaying="y", range=[0, 100], showgrid=True, gridcolor='rgba(0,0,0,0.05)')
-                )
-                st.plotly_chart(fig_gap, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        with col_heat:
-            st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>In-House Physical Hotspots</h5>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.85rem; color: #666;'>Live volume of service tickets generated by specific locations.</p>", unsafe_allow_html=True)
-            
-            if not fb_df.empty and 'guestName' in fb_df.columns:
-                fb_df['Room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
-                hotspots = fb_df.dropna(subset=['Room']).copy()
-                
-                if not hotspots.empty:
-                    room_vol = hotspots.groupby(['Room', 'department']).size().reset_index(name='Incidents')
-                    room_vol['Floor'] = room_vol['Room'].str[:-2]
-                    room_vol['Floor'] = "Floor " + room_vol['Floor']
-                    
-                    fig_heat = px.treemap(
-                        room_vol,
-                        path=['Floor', 'Room', 'department'],
-                        values='Incidents',
-                        color='Incidents',
-                        color_continuous_scale=['#7EC8BD', '#cf6231', '#8e2a2a']
-                    )
-                    fig_heat.update_layout(margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)")
-                    st.plotly_chart(fig_heat, use_container_width=True)
-                else:
-                    st.info("No standard room numbers (e.g., '412') detected in the recent logs.")
-            else:
-                st.info("Awaiting live data to generate physical heatmaps.")
-            st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Pipeline Execution Failure: {e}")
