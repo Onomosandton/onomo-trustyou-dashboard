@@ -43,9 +43,10 @@ vibe_b64 = get_base64_image("vibe1.jpg")
 
 st.markdown("""
 <style>
-    /* Fixed: Removed the 'header' hide rule so the sidebar toggle arrow remains visible */
-    [data-testid="stToolbar"] {display: none !important;}
-    footer {display: none !important;}
+    /* Eliminates the white bar but keeps sidebar accessible */
+    [data-testid="stHeader"] { background-color: transparent !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    footer { display: none !important; }
     
     .stApp { background-color: #F8F9FA; }
     h1, h2, h3, h4, h5, h6, p, span, div { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
@@ -58,7 +59,6 @@ st.markdown("""
     .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
     .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
     
-    /* Style Streamlit Tabs for a cleaner dashboard feel */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
@@ -139,7 +139,7 @@ if not fb_df.empty and 'date' in fb_df.columns:
             criticals = counts[counts >= 2]
             
             for rm, ct in criticals.head(3).items():
-                alerts_html += f"<div class='alert-box'>Alert: Room {rm} - {ct} unresolved complaints recorded.</div>"
+                alerts_html += f"<div class='alert-box'>Critical: Room {rm} - {ct} unresolved complaints recorded.</div>"
             
             if len(criticals) > 3:
                 alerts_html += f"<div style='font-size: 0.85rem; color: #888; font-weight: 700; margin-top: 5px;'>+ {len(criticals) - 3} additional rooms require attention.</div>"
@@ -147,21 +147,20 @@ if not fb_df.empty and 'date' in fb_df.columns:
 if alerts_html == "":
     alerts_html = "<div class='stable-box'>Status Normal: No repeat critical issues detected.</div>"
 
-# 5. Sidebar Restored (Targets and Uploads)
+# 5. Sidebar Navigation (Targets and Uploads)
 with st.sidebar:
-    st.markdown("<h3 style='font-weight:900;'>GM Target Setup</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-weight:900;'>Target Configurations</h3>", unsafe_allow_html=True)
     new_targets = {}
     for platform in ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]:
         new_targets[platform] = st.slider(f"{platform} Target", 50, 100, st.session_state.gm_targets.get(platform, 85))
     if st.button("Save Targets"):
         st.session_state.gm_targets = new_targets
         save_targets(new_targets)
-        st.toast("Targets successfully locked.")
         
     st.markdown("---")
     st.markdown("<h3 style='font-weight:900;'>Data Ingestion</h3>", unsafe_allow_html=True)
-    uploaded_csv = st.file_uploader("TrustYou Data (.csv)", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}", help="Mandatory: Core sentiment scores.")
-    uploaded_xml = st.file_uploader("Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}", help="Optional: Unlocks Room Heatmaps.")
+    uploaded_csv = st.file_uploader("TrustYou Data (.csv)", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
+    uploaded_xml = st.file_uploader("Opera PMS Report (.xml)", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
     
     if uploaded_csv is not None:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -187,7 +186,6 @@ st.markdown(header_html, unsafe_allow_html=True)
 
 # 7. Core Application Logic or Welcome Screen
 if uploaded_csv is None:
-    # --- RESTORED WELCOME DASHBOARD PAGE ---
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
