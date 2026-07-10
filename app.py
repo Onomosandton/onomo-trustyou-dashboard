@@ -434,8 +434,34 @@ else:
             with c4: st.metric("Failed Recoveries", f"{len(slipped_cases)}", delta_color="inverse")
             
             if not slipped_cases.empty:
-                st.markdown("<h4 style='color: #8e2a2a; font-weight: 800; margin-top: 30px; margin-bottom: 10px;'>Drill-down: Guests Who Slipped Through (Negative Post-Stay Reviews)</h4>", unsafe_allow_html=True)
-                st.dataframe(slipped_cases[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
+                st.markdown("<hr style='margin: 30px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Departmental Blindspot Breakdown</h4>", unsafe_allow_html=True)
+                
+                # --- The New Side-by-Side Analytics UI ---
+                c_chart, c_table = st.columns([1, 1.5], gap="large")
+                
+                with c_chart:
+                    dept_counts = slipped_cases['Extracted_Dept'].value_counts().reset_index()
+                    dept_counts.columns = ['Department', 'Failed Recoveries']
+                    fig_dept = px.pie(dept_counts, names='Department', values='Failed Recoveries', hole=0.6,
+                                      color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig_dept.update_layout(margin=dict(t=0, b=0, l=0, r=0), showlegend=True,
+                                           paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                           legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                    st.plotly_chart(fig_dept, use_container_width=True)
+                
+                with c_table:
+                    # Clean Executive Dropdown Filter
+                    dept_options = ["All Departments"] + list(dept_counts['Department'])
+                    selected_dept = st.selectbox("Isolate Departmental Failures", dept_options)
+                    
+                    if selected_dept != "All Departments":
+                        display_df = slipped_cases[slipped_cases['Extracted_Dept'] == selected_dept]
+                    else:
+                        display_df = slipped_cases
+                        
+                    st.markdown(f"<p style='font-size: 0.85rem; color: #8e2a2a; font-weight: 700; margin-bottom: 10px;'>Showing {len(display_df)} failed recoveries for: {selected_dept}</p>", unsafe_allow_html=True)
+                    st.dataframe(display_df[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
 
         with tab3:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
