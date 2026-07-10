@@ -167,7 +167,6 @@ if uploaded_file is not None:
         total_reviews = len(ty_df)
         avg_score = ty_df['Score'].mean()
         
-        # Calculate Target Achievement Pie Charts
         st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
         pie_cols = st.columns(4)
         platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
@@ -177,8 +176,6 @@ if uploaded_file is not None:
             plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
             actual = plat_data['Score'].mean() if not plat_data.empty else 0
             
-            # Pie chart logic: If actual is 70 and target is 85, achieved = 70, missing = 15. 
-            # If actual >= target, achieved = target, missing = 0.
             achieved = min(actual, target)
             missing = max(0, target - actual)
             
@@ -187,116 +184,4 @@ if uploaded_file is not None:
                 values=[achieved, missing] if actual > 0 else [0, 100],
                 hole=.7,
                 marker_colors=['#7EC8BD', '#F0F0F0'],
-                textinfo='none'
-            )])
-            fig.update_layout(
-                showlegend=False, height=180, margin=dict(t=0, b=0, l=0, r=0),
-                annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=16, showarrow=False)]
-            )
-            with pie_cols[idx]:
-                st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem;'>{platform}</p>", unsafe_allow_html=True)
-                st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 2: THE BRIDGE (SERVICE RECOVERY ROI) ---
-        st.markdown("<div class='section-header'>2. The Service Recovery ROI</div>", unsafe_allow_html=True)
-        
-        saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
-        slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
-        
-        save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
-        revenue_at_risk_saved = len(saved_cases) * 2500  # Arbitrary ZAR 2500 ADR baseline for intercepted bad reviews
-        
-        c1, c2, c3 = st.columns(3, gap="medium")
-        with c1: st.metric("The Save Rate", f"{save_rate:.1f}%", "Issues resolved yielding positive reviews")
-        with c2: st.metric("Revenue at Risk Intercepted", f"R {revenue_at_risk_saved:,.2f}", "Saved via in-house resolution")
-        with c3: st.metric("Slipped Through The Cracks", f"{len(slipped_cases)}", "Failed service recoveries", delta_color="inverse")
-            
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        if not slipped_cases.empty:
-            st.markdown("<h5 style='color: #8e2a2a; font-weight: 800; margin-bottom: 10px;'>Guests Who Slipped Through (Negative Post-Stay Reviews)</h5>", unsafe_allow_html=True)
-            st.dataframe(slipped_cases[['Published date', 'Author name', 'Extracted_Dept', 'Score', 'Review Text']].sort_values('Score'), use_container_width=True, hide_index=True)
-        else:
-            st.success("No guests slipped through the cracks in this reporting period.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 3: OPERATIONAL EFFICIENCY & LIVE STREAM ---
-        st.markdown("<div class='section-header'>3. Operational Efficiency & Live Stream</div>", unsafe_allow_html=True)
-        
-        open_tickets = len(fb_df[fb_df['status'] == 'open']) if not fb_df.empty else 0
-        avg_resp_time = fb_df['resolution_time_mins'].mean() if not fb_df.empty and 'resolution_time_mins' in fb_df.columns else 0
-        
-        e1, e2 = st.columns(2, gap="medium")
-        with e1: st.metric("Live Open Tickets", f"{open_tickets}", "Currently tracked in-house", delta_color="inverse")
-        with e2: st.metric("Average Resolution Time", f"{avg_resp_time:.1f} mins" if avg_resp_time > 0 else "N/A", "Target: <15 mins", delta_color="normal" if avg_resp_time <= 15 else "inverse")
-        
-        st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-        st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>Departmental Resolution Speed (Minutes)</h5>", unsafe_allow_html=True)
-        if not fb_df.empty and 'resolution_time_mins' in fb_df.columns:
-            dept_speed = fb_df.groupby('department')['resolution_time_mins'].mean().reset_index()
-            fig_speed = px.bar(dept_speed, x='resolution_time_mins', y='department', orientation='h', color='department', color_discrete_sequence=["#1A1A1A", "#7EC8BD", "#A9B5B0", "#cf6231"])
-            fig_speed.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False, xaxis_title="Average Minutes to Resolve", yaxis_title="")
-            st.plotly_chart(fig_speed, use_container_width=True)
-        else:
-            st.info("Resolution timestamp data not fully available in current Firebase stream.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- SECTION 4: SENTIMENT & PREDICTIVE GAP ANALYSIS ---
-        st.markdown("<div class='section-header'>4. Predictive Forecasting & Gap Analysis</div>", unsafe_allow_html=True)
-        
-        col_gap, col_heat = st.columns(2, gap="medium")
-        
-        with col_gap:
-            st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>The Feedback Gap</h5>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.85rem; color: #666;'>Comparing Live Issue Volume against Final TrustYou Scores.</p>", unsafe_allow_html=True)
-            
-            # Map Live Ticket Volume against TY Score per department
-            if not fb_df.empty:
-                live_vol = fb_df['department'].value_counts().reset_index()
-                live_vol.columns = ['Department', 'Live_Tickets']
-            else:
-                live_vol = pd.DataFrame([{"Department": "Maintenance", "Live_Tickets": 5}, {"Department": "Housekeeping", "Live_Tickets": 2}])
-                
-            ty_dept_score = ty_df[ty_df['Extracted_Dept'] != 'General'].groupby('Extracted_Dept')['Score'].mean().reset_index()
-            ty_dept_score.columns = ['Department', 'TY_Score']
-            
-            gap_df = pd.merge(live_vol, ty_dept_score, on='Department', how='outer').fillna(0)
-            
-            if not gap_df.empty:
-                fig_gap = go.Figure()
-                fig_gap.add_trace(go.Bar(x=gap_df['Department'], y=gap_df['Live_Tickets'], name='Live Tickets Logged', marker_color='#1A1A1A', yaxis='y1'))
-                fig_gap.add_trace(go.Scatter(x=gap_df['Department'], y=gap_df['TY_Score'], name='TrustYou Score', marker_color='#cf6231', mode='lines+markers', yaxis='y2'))
-                fig_gap.update_layout(
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    yaxis=dict(title="Live Tickets", side="left", showgrid=False),
-                    yaxis2=dict(title="TrustYou Score", side="right", overlaying="y", range=[0, 100], showgrid=True, gridcolor='rgba(0,0,0,0.05)')
-                )
-                st.plotly_chart(fig_gap, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        with col_heat:
-            st.markdown("<div class='glass-container' style='height: 100%;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800;'>In-House Room Heatmap</h5>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size: 0.85rem; color: #666;'>Identifies specific rooms generating high complaint volumes live.</p>", unsafe_allow_html=True)
-            
-            if not fb_df.empty and 'guestName' in fb_df.columns:
-                # Extract numeric room numbers from guestName field using regex
-                fb_df['extracted_room'] = fb_df['guestName'].str.extract(r'(\d{3,4})')
-                room_vol = fb_df.dropna(subset=['extracted_room'])['extracted_room'].value_counts().reset_index()
-                room_vol.columns = ['Room Number', 'Incidents']
-                
-                if not room_vol.empty:
-                    st.dataframe(room_vol.head(5), use_container_width=True, hide_index=True)
-                    st.info("Note: Overlaying final TrustYou scores onto this heatmap requires Phase 2 PMS integration, as TrustYou exports omit room numbers.")
-                else:
-                    st.info("No valid room numbers found in recent in-house tracker entries.")
-            else:
-                st.info("Awaiting live data to generate floor heatmaps.")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Pipeline Execution Failure: {e}")
-
-else:
-    st.markdown("<div class='glass-container' style='text-align: center; padding: 60px; color: #666;'><h4 style='font-weight:800; color:#1A1A1A; margin-bottom:10px;'>Awaiting Data Feed</h4><p>Upload your weekly TrustYou CSV via the sidebar to generate the Executive Summary.</p></div>", unsafe_allow_html=True)
+                textinfo='
