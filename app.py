@@ -32,10 +32,13 @@ TARGETS_FILE = "gm_targets.json"
 def load_targets():
     if os.path.exists(TARGETS_FILE):
         with open(TARGETS_FILE, "r") as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except Exception:
+                pass
     return {
         "TrustYou Survey": 85, "booking.com": 85, "google.com": 85, "tripadvisor.com": 85,
-        "ADR": 1500, "Room Revenue": 500000, "F&B Revenue": 150000
+        "ADR": 1500.0, "Room Revenue": 500000.0, "F&B Revenue": 150000.0
     }
 
 def save_targets(targets):
@@ -89,7 +92,6 @@ def parse_pdf_flash_report(pdf_file):
             text = page.extract_text()
             if text: full_text += text + "\n"
         
-        # Regular expressions to locate standard Opera Flash PDF line items
         adr_match = re.search(r'(?:ADR|Average\s+Room\s+Rate|Avg\s+Rate).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
         room_rev_match = re.search(r'(?:Room\s+Revenue|Total\s+Room\s+Rev).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
         fb_rev_match = re.search(r'(?:F\s*&\s*B\s+Revenue|Food\s*(?:&\s*|and\s*)Beverage).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
@@ -186,7 +188,7 @@ header_html = """
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
-# 6. Welcome Landing / Data Configuration Logic
+# 6. Central Application Logic
 if not st.session_state.active_report:
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
@@ -226,27 +228,44 @@ if not st.session_state.active_report:
             else: st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
                 
         with st.expander("Target Configurations", expanded=False):
+            st.markdown("<p style='font-size: 0.85rem; color: #666; margin-bottom: 15px;'>Set baseline performance targets for year-end calculations.</p>", unsafe_allow_html=True)
+            
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
             t_c1, t_c2 = st.columns(2)
             new_targets = {}
             with t_c1:
-                new_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, st.session_state.gm_targets.get("TrustYou Survey", 85))
-                new_targets["google.com"] = st.slider("Google Score", 50, 100, st.session_state.gm_targets.get("google.com", 85))
+                new_targets["TrustYou Survey"] = st.slider("TrustYou Score", 50, 100, int(st.session_state.gm_targets.get("TrustYou Survey", 85)))
+                new_targets["google.com"] = st.slider("Google Score", 50, 100, int(st.session_state.gm_targets.get("google.com", 85)))
             with t_c2:
-                new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, st.session_state.gm_targets.get("booking.com", 85))
-                new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, st.session_state.gm_targets.get("tripadvisor.com", 85))
+                new_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, int(st.session_state.gm_targets.get("booking.com", 85)))
+                new_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, int(st.session_state.gm_targets.get("tripadvisor.com", 85)))
             
             st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
             st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
             f_c1, f_c2, f_c3 = st.columns(3)
-            with f_c1: new_targets["ADR"] = st.number_input("ADR (ZAR)", value=st.session_state.gm_targets.get("ADR", 1500), step=50)
-            with f_c2: new_targets["Room Revenue"] = st.number_input("Room Revenue (ZAR)", value=st.session_state.gm_targets.get("Room Revenue", 500000), step=10000)
-            with f_c3: new_targets["F&B Revenue"] = st.number_input("F&B Revenue (ZAR)", value=st.session_state.gm_targets.get("F&B Revenue", 150000), step=5000)
+            
+            # Use safe text fields so the GM can freely type out numbers cleanly
+            with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{st.session_state.gm_targets.get('ADR', 1500.0):,.2f}")
+            with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{st.session_state.gm_targets.get('Room Revenue', 500000.0):,.0f}")
+            with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{st.session_state.gm_targets.get('F&B Revenue', 150000.0):,.0f}")
             
             if st.button("Save Targets", use_container_width=True):
+                # Clean typed characters automatically in the background so type mismatches never crash the server
+                def sanitize_input(val_str, fallback):
+                    try:
+                        clean = re.sub(r'[^\d.]', '', val_str)
+                        return float(clean) if clean else fallback
+                    except Exception:
+                        return fallback
+                
+                new_targets["ADR"] = sanitize_input(t_adr, 1500.0)
+                new_targets["Room Revenue"] = sanitize_input(t_room, 500000.0)
+                new_targets["F&B Revenue"] = sanitize_input(t_fb, 150000.0)
+                
                 st.session_state.gm_targets = new_targets
                 save_targets(new_targets)
                 st.success("System configurations updated.")
+                st.rerun()
                 
         with st.expander("Data Synchronization", expanded=True):
             col_csv, col_xml = st.columns(2)
@@ -346,24 +365,23 @@ else:
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            # Reputation Metrics Row
             st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
-                target = st.session_state.gm_targets.get(platform, 85)
+                target = float(st.session_state.gm_targets.get(platform, 85))
                 plat_data = ty_df[ty_df['Source'].str.lower() == platform.lower()]
                 actual = plat_data['Score'].mean() if not plat_data.empty else 0
                 achieved, missing = min(actual, target), max(0, target - actual)
                 fig = go.Figure(data=[go.Pie(labels=['Achieved', 'Gap'], values=[achieved, missing] if actual > 0 else [0, 100], hole=.7, marker_colors=['#7EC8BD', '#F0F0F0'], textinfo='none')])
-                fig.update_layout(showlegend=False, height=140, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target}</span>", x=0.5, y=0.5, font_size=14, showarrow=False)])
+                fig.update_layout(showlegend=False, height=140, margin=dict(t=0, b=0, l=0, r=0), annotations=[dict(text=f"{actual:.1f}%<br><span style='font-size:10px;color:#888'>Target: {target:.0f}</span>", x=0.5, y=0.5, font_size=14, showarrow=False)])
                 with pie_cols[idx]:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # --- NEW FINANCIAL TARGET VS ACTUAL VARIANCE SECTION ---
+            # Financial Target Performance Matrix
             st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
             
@@ -371,14 +389,12 @@ else:
             f_cols = st.columns(3)
             
             for idx, metric in enumerate(f_metrics):
-                t_val = st.session_state.gm_targets.get(metric, 1.0)
-                a_val = fin_actuals.get(metric, 0.0)
+                t_val = float(st.session_state.gm_targets.get(metric, 1.0))
+                a_val = float(fin_actuals.get(metric, 0.0))
                 
-                # Protect against zero divisions if PDF parsing is missing/un-uploaded
                 pct_achieved = (a_val / t_val) * 100 if t_val > 0 else 0.0
                 variance = a_val - t_val
                 
-                # Format variables cleanly based on category
                 prefix = "R "
                 v_color = "#8e2a2a" if variance < 0 else "#4A5D54"
                 v_text = f"Deficit: {prefix}{abs(variance):,.2f}" if variance < 0 else f"Surplus: {prefix}{variance:,.2f}"
