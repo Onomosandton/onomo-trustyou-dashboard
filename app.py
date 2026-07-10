@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction & Advanced Table Parser
+# 4. Data Extraction & Advanced Regular Expression Parser
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
@@ -95,29 +95,30 @@ def parse_pdf_flash_report(pdf_file):
         lines = [line.strip() for line in full_text.split("\n") if line.strip()]
         
         for line in lines:
-            # Clean string structures into parsable rows
-            segments = [seg.strip().replace('"', '') for seg in line.split('","')]
-            if not segments or len(segments) < 2:
-                continue
-                
-            label = segments[0].lower()
+            # Clean string structures
+            cleaned_line = line.replace('"', '')
             
-            # Target column row 2 (Month To Date Actuals)
-            if label == "adr" and len(segments) >= 3:
-                try:
-                    actuals["ADR"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
-            elif label == "room revenue" and len(segments) >= 3:
-                try:
-                    actuals["Room Revenue"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
-            elif (label == "food and beverage revenue" or label == "food & beverage revenue") and len(segments) >= 3:
-                try:
-                    actuals["F&B Revenue"] = float(segments[2].replace(",", "").strip())
-                except ValueError:
-                    pass
+            # Find any floating point patterns or digit groups separated by commas/spaces
+            numbers = re.findall(r'\d[\d\s,]*\.?\d*', cleaned_line)
+            # Filter out entries that don't match financial numbers (e.g. single dates or version identifiers)
+            valid_numbers = [num.strip().replace(" ", "").replace(",", "") for num in numbers if num.strip()]
+            valid_numbers = [num for num in valid_numbers if num and not num.startswith('09')]
+
+            if not valid_numbers:
+                continue
+
+            # Exact phrase detection that references raw line arrays
+            if cleaned_line.lower().startswith("adr ") or cleaned_line.lower().startswith("adr,"):
+                if len(valid_numbers) >= 2:
+                    actuals["ADR"] = float(valid_numbers[1])
+                    
+            elif cleaned_line.lower().startswith("room revenue"):
+                if len(valid_numbers) >= 2:
+                    actuals["Room Revenue"] = float(valid_numbers[1])
+                    
+            elif cleaned_line.lower().startswith("food and beverage revenue"):
+                if len(valid_numbers) >= 2:
+                    actuals["F&B Revenue"] = float(valid_numbers[1])
     except Exception:
         pass
     return actuals
