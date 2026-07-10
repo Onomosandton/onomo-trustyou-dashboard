@@ -82,23 +82,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines
+# 4. Data Ingestion & Broadened Parsing Engines
 def parse_pdf_flash_report(pdf_file):
     actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
     try:
         reader = PdfReader(pdf_file)
-        full_text = ""
+        lines = []
         for page in reader.pages:
             text = page.extract_text()
-            if text: full_text += text + "\n"
-        
-        adr_match = re.search(r'(?:ADR|Average\s+Room\s+Rate|Avg\s+Rate).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
-        room_rev_match = re.search(r'(?:Room\s+Revenue|Total\s+Room\s+Rev).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
-        fb_rev_match = re.search(r'(?:F\s*&\s*B\s+Revenue|Food\s*(?:&\s*|and\s*)Beverage).*?(\d[\d\s,]*\.?\d*)', full_text, re.IGNORECASE)
-        
-        if adr_match: actuals["ADR"] = float(adr_match.group(1).replace(" ", "").replace(",", ""))
-        if room_rev_match: actuals["Room Revenue"] = float(room_rev_match.group(1).replace(" ", "").replace(",", ""))
-        if fb_rev_match: actuals["F&B Revenue"] = float(fb_rev_match.group(1).replace(" ", "").replace(",", ""))
+            if text:
+                for line in text.split("\n"):
+                    lines.append(line.strip())
+                    
+        for line in lines:
+            # Broadened positional lookup matches numbers following hospitality metrics
+            if any(k in line.lower() for k in ["adr", "average room rate", "avg rate", "arr"]):
+                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
+                if numbers: actuals["ADR"] = float(numbers[0].replace(" ", "").replace(",", ""))
+                
+            if any(k in line.lower() for k in ["room revenue", "room rev", "total room rev", "rooms rev"]):
+                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
+                if numbers: actuals["Room Revenue"] = float(numbers[0].replace(" ", "").replace(",", ""))
+                
+            if any(k in line.lower() for k in ["f&b revenue", "f & b", "food & beverage", "total f&b", "food and beverage"]):
+                numbers = re.findall(r'\d[\d\s,]*\.?\d*', line)
+                if numbers: actuals["F&B Revenue"] = float(numbers[0].replace(" ", "").replace(",", ""))
     except Exception:
         pass
     return actuals
@@ -193,7 +201,6 @@ if not st.session_state.active_report:
     welcome_left, welcome_right = st.columns([1.1, 1], gap="large")
     
     with welcome_left:
-        
         tracker_state = "Online" if not fb_df.empty else "Offline"
         st.markdown(f"""
         <div style='margin-bottom: 25px;'>
@@ -229,7 +236,6 @@ if not st.session_state.active_report:
             else: st.success("[STATUS NORMAL] Floor stable. No repeat critical issues detected.")
                 
         with st.expander("Target Configurations", expanded=False):
-            # FIXED: Housed the input fields inside an explicit Streamlit Form block to isolate typing from the rerun cycle
             with st.form("target_form_block"):
                 st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
                 t_c1, t_c2 = st.columns(2)
@@ -306,8 +312,6 @@ else:
         st.session_state.uploader_key += 1
         st.rerun()
             
-    st.markdown("<hr style='margin: 10px 0px 20px 0px;'>", unsafe_allow_html=True)
-    
     try:
         ty_df = st.session_state.ty_df
         opera_df = st.session_state.opera_df
@@ -360,15 +364,15 @@ else:
         tab1, tab2, tab3 = st.tabs(["Executive Summary", "Service Recovery & ROI", "Floor Operations & Heatmap"])
 
         with tab1:
-            st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-top: 15px;'></div>", unsafe_allow_html=True)
             col1, col2, col3, col4 = st.columns(4, gap="medium")
             with col1: st.metric("Reviews Correlated", f"{total_reviews}")
             with col2: st.metric("Overall Score", f"{avg_score:.1f}%")
             with col3: st.metric("In-House Blindspots", f"{actual_blindspots}", delta_color="inverse")
             with col4: st.metric("Operational Catch Rate", f"{catch_rate:.1f}%")
             
-            st.markdown("<div class='glass-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
+            st.markdown("<div class='glass-container' style='margin-top: 25px;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Platform Target Achievement</h5>", unsafe_allow_html=True)
             pie_cols = st.columns(4)
             platforms = ["TrustYou Survey", "booking.com", "google.com", "tripadvisor.com"]
             for idx, platform in enumerate(platforms):
@@ -383,9 +387,9 @@ else:
                     st.plotly_chart(fig, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Financial Target Performance Matrix
-            st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
+            # Financial Target Performance Matrix (Fixed White Block Divs Removed)
+            st.markdown("<div class='glass-container' style='margin-top: 5px;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #1A1A1A; font-weight: 800; margin-bottom: 20px;'>Financial Target Performance Matrix</h5>", unsafe_allow_html=True)
             
             f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
             f_cols = st.columns(3)
