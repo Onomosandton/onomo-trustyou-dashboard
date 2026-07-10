@@ -43,7 +43,6 @@ vibe_b64 = get_base64_image("vibe1.jpg")
 
 st.markdown("""
 <style>
-    /* Eliminates the white bar but keeps sidebar accessible */
     [data-testid="stHeader"] { background-color: transparent !important; }
     [data-testid="stToolbar"] { display: none !important; }
     footer { display: none !important; }
@@ -56,16 +55,17 @@ st.markdown("""
     div[data-testid="metric-container"] label { color: #888888 !important; font-weight: 700 !important; font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 1px; }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #1A1A1A !important; font-weight: 900 !important; font-size: 2rem !important; }
     .glass-container { background: #FFFFFF !important; border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02) !important; margin-bottom: 25px; }
-    .alert-box { background: #FFF4F4; border-left: 4px solid #8e2a2a; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #8e2a2a; font-weight: 700; }
-    .stable-box { background: #F0F9F8; border-left: 4px solid #7EC8BD; padding: 10px 15px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9rem; color: #4A5D54; font-weight: 700; }
     
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { font-weight: 800; font-size: 1.1rem; padding-top: 15px; padding-bottom: 15px; color: #666; }
     .stTabs [aria-selected="true"] { color: #1A1A1A !important; border-bottom: 3px solid #7EC8BD !important; }
+    
+    /* Expander styling for drill-ins */
+    .streamlit-expanderHeader { font-weight: 800 !important; color: #1A1A1A !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 4. Data Extraction Pipelines
+# 4. Data Extraction Pipelines (100% Live)
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -119,7 +119,7 @@ def parse_opera_xml(xml_file):
 fb_df = fetch_live_firebase_data()
 open_tickets_total = 0
 open_tickets_24h = 0
-alerts_html = ""
+criticals = pd.Series(dtype=int)
 
 if not fb_df.empty and 'date' in fb_df.columns:
     fb_df['date'] = pd.to_datetime(fb_df['date'], errors='coerce').dt.tz_localize(None)
@@ -128,7 +128,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
     
     open_tickets_total = len(fb_df[fb_df['status'] == 'open'])
-    
     last_24h_boundary = pd.Timestamp.now().replace(tzinfo=None) - pd.Timedelta(days=1)
     open_tickets_24h = len(fb_df[(fb_df['status'] == 'open') & (fb_df['date'] >= last_24h_boundary)])
     
@@ -137,15 +136,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
         if not rooms.empty:
             counts = rooms.value_counts()
             criticals = counts[counts >= 2]
-            
-            for rm, ct in criticals.head(3).items():
-                alerts_html += f"<div class='alert-box'>Critical: Room {rm} - {ct} unresolved complaints recorded.</div>"
-            
-            if len(criticals) > 3:
-                alerts_html += f"<div style='font-size: 0.85rem; color: #888; font-weight: 700; margin-top: 5px;'>+ {len(criticals) - 3} additional rooms require attention.</div>"
-
-if alerts_html == "":
-    alerts_html = "<div class='stable-box'>Status Normal: No repeat critical issues detected.</div>"
 
 # 5. Sidebar Navigation (Targets and Uploads)
 with st.sidebar:
@@ -190,33 +180,35 @@ if uploaded_csv is None:
     
     with welcome_left:
         st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
-        st.markdown("<h1 style='color: #1A1A1A; font-weight: 900; font-size: 3.5rem; line-height: 1.1; letter-spacing: -1.5px; margin-bottom: 20px;'>Sandton Predictive<br>Operations Hub.</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #666666; font-size: 1.20rem; line-height: 1.7; margin-bottom: 40px; max-width: 95%;'>Sync live floor trackers with property management data to instantly identify service gaps, allocate maintenance workflows, and actively protect guest satisfaction scores. Please process your weekly exports via the sidebar.</p>", unsafe_allow_html=True)
         
-        tracker_state = "System Online" if not fb_df.empty else "System Offline"
-        st.markdown(f"""
-        <div class='glass-container'>
-            <h4 style='margin-top:0; color: #1A1A1A; font-weight: 900;'>Live Floor Snapshot</h4>
-            <div style='display: flex; justify-content: space-between; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(0,0,0,0.05);'>
-                <div>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Tracker Status</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #1A1A1A;'>{tracker_state}</span>
-                </div>
-                <div style='text-align: center;'>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Active Last 24 Hrs</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #cf6231;'>{open_tickets_24h}</span>
-                </div>
-                <div style='text-align: right;'>
-                    <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Total Cycle Backlog</span><br>
-                    <span style='font-size: 1.6rem; font-weight: 900; color: #8e2a2a;'>{open_tickets_total}</span>
-                </div>
-            </div>
-            <div style='margin-top: 15px;'>
-                <span style='color: #888; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;'>Critical Active Alerts (Top 3 Offenders)</span><br>
-                <div style='margin-top: 8px;'>{alerts_html}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Redesigned Live Snapshot with Drill-ins
+        st.markdown("<h3 style='color: #1A1A1A; font-weight: 900; margin-bottom: 20px;'>Live Floor Snapshot</h3>", unsafe_allow_html=True)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1: st.metric("Tracker Status", "Online" if not fb_df.empty else "Offline")
+        with c2: st.metric("Active Last 24 Hrs", f"{open_tickets_24h}")
+        with c3: st.metric("Total Cycle Backlog", f"{open_tickets_total}")
+        
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        
+        if not fb_df.empty:
+            # Drill-in 1: Open Tickets
+            with st.expander("View Active Backlog Details", expanded=False):
+                active_df = fb_df[fb_df['status'] == 'open'][['date', 'guestName', 'department', 'type']].sort_values('date', ascending=False)
+                if not active_df.empty:
+                    st.dataframe(active_df, hide_index=True, use_container_width=True)
+                else:
+                    st.success("No open tickets currently backlogged.")
+            
+            # Drill-in 2: Critical Alerts
+            with st.expander(f"View Critical Room Alerts ({len(criticals)})", expanded=False):
+                if not criticals.empty:
+                    for rm, ct in criticals.items():
+                        st.error(f"Room {rm}: {ct} complaints recorded in current cycle.")
+                else:
+                    st.success("Floor stable. No repeat critical issues detected.")
+        else:
+            st.info("System Offline: Awaiting live tracker data.")
             
     with welcome_right:
         img_src = "data:image/jpeg;base64," + vibe_b64 if vibe_b64 else "https://images.unsplash.com/photo-1542314831-c6a4d14d8c53?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
@@ -227,7 +219,7 @@ if uploaded_csv is None:
         st.markdown(image_html, unsafe_allow_html=True)
 
 else:
-    # --- ACTIVE ANALYTICS DASHBOARD (BIRDSEYE TABS) ---
+    # --- ACTIVE ANALYTICS DASHBOARD ---
     try:
         ty_df = pd.read_csv(uploaded_csv)
         ty_df['Score'] = pd.to_numeric(ty_df['Score'], errors='coerce')
@@ -318,6 +310,7 @@ else:
             saved_cases = ty_df[ty_df['Synergy_Metric'] == "Resolved In-House"]
             slipped_cases = ty_df[ty_df['Synergy_Metric'] == "Slipped Through (Blindspot)"]
             
+            # Removed arbitrary 2500 multiplier. Strict reliance on actual firebase logged costs.
             actual_recovery_spend = saved_cases['Recovery_Cost'].sum()
             confirmed_praises = len(ty_df[ty_df['Synergy_Metric'] == "Praise Confirmed"])
             save_rate = (len(saved_cases) / (len(saved_cases) + len(slipped_cases))) * 100 if (len(saved_cases) + len(slipped_cases)) > 0 else 0
