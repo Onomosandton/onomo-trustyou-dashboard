@@ -9,7 +9,6 @@ import os
 import json
 import re
 import xml.etree.ElementTree as ET
-from pypdf import PdfReader
 from datetime import datetime, timedelta
 
 # 1. Page Configuration
@@ -22,8 +21,6 @@ if 'ty_df' not in st.session_state:
     st.session_state.ty_df = pd.DataFrame()
 if 'opera_df' not in st.session_state:
     st.session_state.opera_df = pd.DataFrame()
-if 'financial_actuals' not in st.session_state:
-    st.session_state.financial_actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -37,8 +34,7 @@ def load_targets():
             except Exception:
                 pass
     return {
-        "TrustYou Survey": 85.0, "booking.com": 85.0, "google.com": 85.0, "tripadvisor.com": 85.0,
-        "ADR": 1500.0, "Room Revenue": 500000.0, "F&B Revenue": 150000.0
+        "TrustYou Survey": 85.0, "booking.com": 85.0, "google.com": 85.0, "tripadvisor.com": 85.0
     }
 
 def save_targets(targets):
@@ -83,36 +79,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 4. Data Extraction Engines
-def parse_pdf_flash_report(pdf_file):
-    actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
-    try:
-        reader = PdfReader(pdf_file)
-        full_text = ""
-        for page in reader.pages:
-            t = page.extract_text()
-            if t: full_text += t + " "
-            
-        flat_text = full_text.replace('\n', ' ').replace('\r', ' ')
-        metrics = {
-            "ADR": ["ADR", "Average Room Rate"],
-            "Room Revenue": ["Room Revenue", "Total Room Rev", "Rooms Revenue"],
-            "F&B Revenue": ["Food And Beverage Revenue", "Food & Beverage Revenue", "F&B Revenue", "F & B Revenue"]
-        }
-        
-        for key, aliases in metrics.items():
-            for alias in aliases:
-                pattern = rf'{re.escape(alias)}[^a-zA-Z\d]+(\d[0-9,\.]*)[^a-zA-Z\d]+(\d[0-9,\.]*)'
-                match = re.search(pattern, flat_text, re.IGNORECASE)
-                if match:
-                    try:
-                        actuals[key] = float(match.group(2).replace(",", ""))
-                        break
-                    except ValueError:
-                        pass
-    except Exception:
-        pass
-    return actuals
-
 def fetch_live_firebase_data():
     try:
         if "firebase" not in st.secrets or "project_id" not in st.secrets["firebase"]: return pd.DataFrame()
@@ -172,7 +138,6 @@ if not fb_df.empty and 'date' in fb_df.columns:
         fb_df['resolvedAt'] = pd.to_datetime(fb_df['resolvedAt'], errors='coerce').dt.tz_localize(None)
         fb_df['resolution_time_mins'] = (fb_df['resolvedAt'] - fb_df['date']).dt.total_seconds() / 60.0
     
-    # NEW: Secure normalization of ticket types
     if 'type' in fb_df.columns:
         fb_df['ticket_type'] = fb_df['type'].fillna('complaint').str.lower()
     else:
@@ -246,7 +211,7 @@ if not st.session_state.active_report:
                 
         with st.expander("Target Configurations", expanded=False):
             with st.form("target_form_block"):
-                st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 1: Online Review Scores</div>", unsafe_allow_html=True)
+                st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Online Review Scores</div>", unsafe_allow_html=True)
                 t_c1, t_c2 = st.columns(2)
                 form_targets = {}
                 with t_c1:
@@ -256,29 +221,10 @@ if not st.session_state.active_report:
                     form_targets["booking.com"] = st.slider("Booking.com Score", 50, 100, int(st.session_state.gm_targets.get("booking.com", 85)))
                     form_targets["tripadvisor.com"] = st.slider("TripAdvisor Score", 50, 100, int(st.session_state.gm_targets.get("tripadvisor.com", 85)))
                 
-                st.markdown("<hr style='margin: 15px 0px; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-                st.markdown("<div style='font-weight: 700; font-size: 0.85rem; color: #1A1A1A; margin-bottom: 10px; text-transform: uppercase;'>Section 2: Financials</div>", unsafe_allow_html=True)
-                f_c1, f_c2, f_c3 = st.columns(3)
-                
-                with f_c1: t_adr = st.text_input("ADR target (ZAR)", value=f"{float(st.session_state.gm_targets.get('ADR', 1500.0)):,.2f}")
-                with f_c2: t_room = st.text_input("Room Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('Room Revenue', 500000.0)):,.0f}")
-                with f_c3: t_fb = st.text_input("F&B Revenue target (ZAR)", value=f"{float(st.session_state.gm_targets.get('F&B Revenue', 150000.0)):,.0f}")
-                
                 st.markdown("<br>", unsafe_allow_html=True)
                 submit_targets = st.form_submit_button("Save Targets", use_container_width=True)
                 
                 if submit_targets:
-                    def sanitize_input(val_str, fallback):
-                        try:
-                            clean = re.sub(r'[^\d.]', '', str(val_str))
-                            return float(clean) if clean else fallback
-                        except Exception:
-                            return fallback
-                    
-                    form_targets["ADR"] = sanitize_input(t_adr, 1500.0)
-                    form_targets["Room Revenue"] = sanitize_input(t_room, 500000.0)
-                    form_targets["F&B Revenue"] = sanitize_input(t_fb, 150000.0)
-                    
                     st.session_state.gm_targets = form_targets
                     save_targets(form_targets)
                     st.success("System configurations updated.")
@@ -289,8 +235,6 @@ if not st.session_state.active_report:
             with col_csv: csv_file = st.file_uploader("Upload TrustYou Data (.csv) [REQUIRED]", type=["csv"], key=f"csv_up_{st.session_state.uploader_key}")
             with col_xml: xml_file = st.file_uploader("Upload Opera PMS Report (.xml) [OPTIONAL]", type=["xml"], key=f"xml_up_{st.session_state.uploader_key}")
             
-            pdf_file = st.file_uploader("Upload Daily Flash Report (.pdf) [OPTIONAL]", type=["pdf"], key=f"pdf_up_{st.session_state.uploader_key}")
-            
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Generate Analytics", use_container_width=True, type="primary"):
                 if csv_file is not None:
@@ -300,7 +244,6 @@ if not st.session_state.active_report:
                     st.session_state.ty_df = parsed_ty
                     
                     st.session_state.opera_df = parse_opera_xml(xml_file) if xml_file is not None else pd.DataFrame()
-                    st.session_state.financial_actuals = parse_pdf_flash_report(pdf_file) if pdf_file is not None else {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
                     
                     st.session_state.active_report = True
                     st.rerun()
@@ -317,14 +260,12 @@ else:
         st.session_state.active_report = False
         st.session_state.ty_df = pd.DataFrame()
         st.session_state.opera_df = pd.DataFrame()
-        st.session_state.financial_actuals = {"ADR": 0.0, "Room Revenue": 0.0, "F&B Revenue": 0.0}
         st.session_state.uploader_key += 1
         st.rerun()
             
     try:
         ty_df = st.session_state.ty_df
         opera_df = st.session_state.opera_df
-        fin_actuals = st.session_state.financial_actuals
         
         def mine_review_text_department(text):
             if pd.isna(text): return "General"
@@ -344,7 +285,6 @@ else:
                 if author in op_row['Opera_Name'] or op_row['Opera_Name'] in author: return op_row['Room_No']
             return None
 
-        # NEW: Strict isolation of Praises vs Complaints
         def cross_reference_synergy(row, live_db):
             score = row.get('Score', 0)
             review_date = row.get('Published date')
@@ -377,7 +317,6 @@ else:
                             actual_cost = float(fb_row.get('cost', 0.0))
                             break
             
-            # The Updated Praise vs Complaint Matrix Logic
             if score >= 80:
                 if has_ticket and ticket_type == 'compliment': return ("Praise Confirmed", actual_cost)
                 elif has_ticket and ticket_type != 'compliment' and ticket_status == 'resolved': return ("True Save", actual_cost)
@@ -386,7 +325,7 @@ else:
             else:
                 if has_ticket and ticket_type != 'compliment' and ticket_status == 'resolved': return ("False Save", actual_cost)
                 elif has_ticket and ticket_type != 'compliment' and ticket_status != 'resolved': return ("Failed Escalation", actual_cost)
-                else: return ("Blindspot", 0.0) # Captures zero tickets OR instances where a compliment was logged but guest left a bad review.
+                else: return ("Blindspot", 0.0)
 
         ty_df['Extracted_Dept'] = ty_df['Review Text'].apply(mine_review_text_department)
         ty_df['Opera_Room'] = ty_df.apply(lambda r: extract_opera_room(r, opera_df), axis=1)
@@ -429,31 +368,6 @@ else:
                     st.markdown(f"<p style='text-align:center; font-weight:700; color:#1A1A1A; font-size:0.9rem; margin-bottom:5px;'>{platform}</p>", unsafe_allow_html=True)
                     st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-top: 40px; margin-bottom: 20px;'>Financial Target Performance Matrix</h4>", unsafe_allow_html=True)
-            f_cols = st.columns(3)
-            f_metrics = ["ADR", "Room Revenue", "F&B Revenue"]
-            
-            for idx, metric in enumerate(f_metrics):
-                t_val = float(st.session_state.gm_targets.get(metric, 1.0))
-                a_val = float(fin_actuals.get(metric, 0.0))
-                
-                pct_achieved = (a_val / t_val) * 100 if t_val > 0 else 0.0
-                variance = a_val - t_val
-                
-                prefix = "R "
-                v_color = "#8e2a2a" if variance < 0 else "#4A5D54"
-                v_text = f"Deficit: {prefix}{abs(variance):,.2f}" if variance < 0 else f"Surplus: {prefix}{variance:,.2f}"
-                if metric == "ADR": v_text = f"Variance: {prefix}{variance:,.2f}"
-                
-                with f_cols[idx]:
-                    st.markdown(f"""
-                    <div style='background: #FFFFFF; padding: 25px; border-radius: 16px; border-top: 4px solid {v_color}; box-shadow: 0 10px 30px rgba(0,0,0,0.02);'>
-                        <div style='color: #666; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{metric} Performance</div>
-                        <div style='font-size: 1.8rem; font-weight: 900; color: #1A1A1A; margin-top: 5px;'>{prefix}{a_val:,.2f} <span style='font-size: 0.9rem; color:#888; font-weight:400;'>/ Target: {prefix}{t_val:,.2f}</span></div>
-                        <div style='font-size: 0.85rem; color: {v_color}; font-weight: 700; margin-top: 5px;'>{v_text} ({pct_achieved:.1f}% Achieved)</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
         with tab2:
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
             
@@ -490,7 +404,6 @@ else:
             
             st.markdown(f"<p style='font-size: 0.85rem; color: #666; font-weight: 700; margin-top: 10px;'>Total Documented Recovery Spend: ZAR {actual_recovery_spend:,.2f}</p>", unsafe_allow_html=True)
 
-            # NEW: Tri-Column Data Reconciliation Section
             st.markdown("<hr style='margin: 30px 0; border-color: rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
             st.markdown("<h4 style='color: #1A1A1A; font-weight: 800; margin-bottom: 15px;'>Data Reconciliation: Closing the Loop</h4>", unsafe_allow_html=True)
             
